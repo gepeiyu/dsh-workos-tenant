@@ -35,7 +35,7 @@ flowchart TB
   workos[WorkOS<br/>登录 / 组织 / 角色]
   cloudflare[Cloudflare<br/>DNS / HTTPS / WAF / 可选代理]
 
-  subgraph orgA[组织：Acme]
+  subgraph orgA[组织：示例组织]
     dshA[一个 DSH 实例]
     plugin[dsh-workos-tenant 插件<br/>Session Guard / Workspace Guard / Key Router]
     dshCore[DSH Agent / Session / Workspace / LLM]
@@ -56,14 +56,14 @@ flowchart TB
 sequenceDiagram
   participant U as Alice 浏览器
   participant W as WorkOS
-  participant D as Acme DSH
+  participant D as 示例组织 DSH
   participant P as dsh-workos-tenant
   participant L as LLM Provider
 
   U->>D: 请求 DSH
   D->>P: 检查 WorkOS Session Cookie
   P->>W: 验证登录回调或 Session
-  W-->>P: org_acme / user_alice / member
+  W-->>P: org_example / user_alice / member
   P-->>D: 放行已验证身份
   D->>P: 授权 user_alice 访问 session-123
   P->>P: session-123 -> user_alice -> Alice API Key
@@ -86,7 +86,7 @@ sequenceDiagram
 
 ```js
 {
-  organizationId: 'org_acme',
+  organizationId: 'org_example',
   userId: 'user_alice',
   role: 'member'
 }

@@ -35,7 +35,7 @@ flowchart TB
   workos[WorkOS<br/>Login / Organizations / Roles]
   cloudflare[Cloudflare<br/>DNS / HTTPS / WAF / optional proxy]
 
-  subgraph orgA[Organization: Acme]
+  subgraph orgA[Organization: Example Organization]
     dshA[One DSH Instance]
     plugin[dsh-workos-tenant Plugin<br/>Session Guard / Workspace Guard / Key Router]
     dshCore[DSH Agent / Session / Workspace / LLM]
@@ -56,14 +56,14 @@ This deployment model uses one DSH instance per WorkOS organization. The organiz
 sequenceDiagram
   participant U as Alice Browser
   participant W as WorkOS
-  participant D as Acme DSH
+  participant D as Example Organization DSH
   participant P as dsh-workos-tenant
   participant L as LLM Provider
 
   U->>D: Request to DSH
   D->>P: Check WorkOS session cookie
   P->>W: Validate login callback or session
-  W-->>P: org_acme / user_alice / member
+  W-->>P: org_example / user_alice / member
   P-->>D: Allow verified identity
   D->>P: Authorize session-123 for user_alice
   P->>P: session-123 -> user_alice -> Alice API Key
@@ -86,7 +86,7 @@ The plugin owns the WorkOS authorization-code exchange, HttpOnly session cookie,
 
 ```js
 {
-  organizationId: 'org_acme',
+  organizationId: 'org_example',
   userId: 'user_alice',
   role: 'member'
 }
