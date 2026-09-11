@@ -1,5 +1,7 @@
 # dsh-workos-tenant
 
+[中文说明](README.zh-CN.md)
+
 `dsh-workos-tenant` is a DSH plugin for the target topology:
 
 - one DSH instance per organization;
