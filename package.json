@@ -1,0 +1,41 @@
+{
+  "name": "dsh-workos-tenant",
+  "version": "0.1.0",
+  "description": "WorkOS-authenticated organization tenant plugin for DeepSeek Harness",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./policy": "./src/policy.js",
+    "./guards": "./src/guards.js",
+    "./auth": "./src/auth.js",
+    "./storage": "./src/storage.js",
+    "./service": "./src/service.js"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "@workos-inc/node": "^10.13.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1"
+  },
+  "dsh": {
+    "compatibility": ">=0.1.2-rc.1 <0.2.0",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": []
+  }
+}

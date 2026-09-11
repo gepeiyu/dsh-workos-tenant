@@ -1,0 +1,16 @@
+# dsh-workos-tenant host bundle.
+# WorkOS auth is enabled automatically when all WORKOS_* variables are present.
+# Keep secrets out of this patch and out of the browser bundle.
+- insert:
+    - id: dsh-workos-tenant
+      name: dsh-workos-tenant
+      config:
+        adminRoles:
+          - owner
+          - admin
+        adminCanManageKeys: false
+        storage:
+          mode: local
+          # Set mode to d1 in plugin settings and keep credentials in env:
+          # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID,
+          # CLOUDFLARE_API_TOKEN, DSH_TENANT_ENCRYPTION_KEY.

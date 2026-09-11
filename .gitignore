@@ -1,0 +1,4 @@
+.env
+.dsh-local/
+node_modules/
+.pnpm-store/
