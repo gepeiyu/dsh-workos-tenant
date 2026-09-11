@@ -2,55 +2,142 @@
 
 [English README](README.md)
 
-`dsh-workos-tenant` 是一个用于 DeepSeek Harness（DSH）的 WorkOS 多租户插件。它不修改 DSH 源码，在一个组织专用的 DSH 实例内提供：
+`dsh-workos-tenant` 是一个用于以下部署模式的 DSH 插件：
 
-- WorkOS AuthKit 登录、回调和退出；
-- HttpOnly 会话 Cookie 和未登录请求保护；
-- WorkOS 组织和用户身份绑定；
-- Session、Workspace 的用户级归属和资源隔离；
-- 用户级 LLM API Key 路由；
-- 本地 JSON 存储；
-- 可选的 Cloudflare D1 持久化。
+- 每个组织使用一个 DSH 实例；
+- 一个组织内有多个经过 WorkOS 认证的用户；
+- Session 和 Workspace 按用户归属；
+- 根据当前 Session 选择用户级 LLM API Key。
 
-当前包名和 DSH 插件 ID 都是 `dsh-workos-tenant`。
+插件同时包含 WorkOS 登录门禁和 DSH 租户策略。Cloudflare 可以继续作为 DNS、HTTPS、WAF 和可选的 Container 路由层存在。
+
+插件不会修改 DeepSeek Harness 源码。
+
+## GitHub 发布
+
+项目是一个名为 `dsh-workos-tenant` 的独立仓库。要把新的本地副本发布到 GitHub，请先创建同名空仓库，然后执行：
+
+```bash
+git init -b main
+git add .
+git commit -m "Initial dsh-workos-tenant plugin"
+git remote add origin https://github.com/<owner>/dsh-workos-tenant.git
+git push -u origin main
+```
+
+不要提交 `.env`、DSH Profile、Cloudflare Token、WorkOS Key 或租户状态文件。`.gitignore` 已经排除本地密钥和 Profile 路径。GitHub 仓库足以用于源码分发；在测试阶段不一定需要发布到 npm，因为 DSH 可以从 Git 链接安装这个包。
 
 ## 架构
 
-浏览器访问 DSH，插件在服务端完成 WorkOS 登录回调和身份确认。每个 DSH 实例通过 `WORKOS_ORGANIZATION_ID` 绑定到一个 WorkOS 组织。Cloudflare 只负责 DNS、HTTPS、WAF 或外部部署路由；WorkOS 认证在插件内完成。
+```mermaid
+flowchart TB
+  browser[用户浏览器<br/>DSH Web UI]
+  workos[WorkOS<br/>登录 / 组织 / 角色]
+  cloudflare[Cloudflare<br/>DNS / HTTPS / WAF / 可选代理]
 
-插件不会信任浏览器提交的 `organizationId`、`userId` 或角色字段。身份只能来自服务端完成的 WorkOS 授权码交换和会话 Cookie。
+  subgraph orgA[组织：Acme]
+    dshA[一个 DSH 实例]
+    plugin[dsh-workos-tenant 插件<br/>Session Guard / Workspace Guard / Key Router]
+    dshCore[DSH Agent / Session / Workspace / LLM]
+    secrets[用户级 Secret Store<br/>Alice Key / Bob Key]
+    dshA --> plugin
+    plugin --> dshCore
+    plugin --> secrets
+  end
 
-## 环境要求
-
-- Node.js `>=22`；
-- DSH `>=0.1.2-rc.1 <0.2.0`；
-- WorkOS AuthKit 项目；
-- 使用 D1 时，需要 Cloudflare API Token 和 D1 数据库。
-
-## 安装到 DSH
-
-本地开发时：
-
-```bash
-pnpm install
-
-export DSH_HOME="$PWD/.dsh-local"
-dsh plugin --profile web add "link:$(pwd)"
+  browser --> dshA
+  dshA --> workos
+  cloudflare -. 可选 .-> dshA
 ```
 
-启动：
+这种部署模式为每个 WorkOS 组织使用一个 DSH 实例。通过 `WORKOS_ORGANIZATION_ID` 配置组织绑定；外部路由或 Cloudflare Container 的部署位置属于部署层职责。
 
-```bash
-dsh --profile web --no-open --host 127.0.0.1 --port 3080
+```mermaid
+sequenceDiagram
+  participant U as Alice 浏览器
+  participant W as WorkOS
+  participant D as Acme DSH
+  participant P as dsh-workos-tenant
+  participant L as LLM Provider
+
+  U->>D: 请求 DSH
+  D->>P: 检查 WorkOS Session Cookie
+  P->>W: 验证登录回调或 Session
+  W-->>P: org_acme / user_alice / member
+  P-->>D: 放行已验证身份
+  D->>P: 授权 user_alice 访问 session-123
+  P->>P: session-123 -> user_alice -> Alice API Key
+  P-->>D: 放行并提供限定范围的凭据
+  D->>L: 使用 Alice API Key 生成内容
+  L-->>D: 模型响应
+  D-->>U: DSH 响应
 ```
 
-如果已经安装过旧名称 `dsh-org-tenant`，请先在 DSH 插件列表中移除旧条目，再安装新的 `dsh-workos-tenant`。
+## 边界
 
-## WorkOS 配置
+本包实现 DSH 侧的 WorkOS 门禁，但明确不实现：
 
-WorkOS 和 Cloudflare 的密钥只通过环境变量配置，不提交到 GitHub，也不放入插件设置文件：
+- Cloudflare Worker、反向代理、DNS 或 TLS；
+- 组织到 Container 的路由；
+- Node 进程中的 Cloudflare Worker D1 binding（D1 通过 Cloudflare API 访问）；
+- 针对具体 Provider 的 Secret Vault 集成。
+
+插件负责 WorkOS 授权码交换、HttpOnly Session Cookie、登录跳转、退出登录和 DSH 路由保护。它从服务端 WorkOS 响应中提取可信身份：
+
+```js
+{
+  organizationId: 'org_acme',
+  userId: 'user_alice',
+  role: 'member'
+}
+```
+
+然后插件应用 DSH 内部的归属和授权规则。插件绝不能信任未经验证的浏览器请求直接提交的 `organizationId` 或 `userId`。
+
+## 已实现功能
+
+- 通过 `dsh.bundle.patch` 提供标准 DSH Bundle 元数据；
+- WorkOS 启用时提供 `ctx.tenantPolicy` 和 `ctx.workosAuth` Cordis 服务；
+- WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
+- 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
+- 未认证的首页请求自动跳转到 `/auth/login`；
+- DSH `/api` 和升级请求必须通过 WorkOS 认证；
+- 通过 `ctx.workosAuth.identityFromRequest()` 和 `runWithRequestIdentity()` 访问已验证身份；
+- 组织和用户身份标准化；
+- Session 和 Workspace 的组织及用户归属；
+- 组织管理员只访问同一组织内的其他用户；
+- 用户级 API Key 存储以及根据 Session 所有者路由 Key；
+- 启用 WorkOS 时自动包装 Session/Workspace Remote Guard；
+- 为直接集成和测试提供纯 Session/Workspace Controller Guard；
+- API Key 描述接口不会返回 Secret 值；
+- 通过 DSH 的 `session/disposed` 事件清理 Session 归属；
+- 未配置 D1 时使用本地 JSON 持久化；
+- 配置 D1 时通过 Cloudflare D1 REST API 持久化，并加密状态内容；
+- 面向策略和存储边界的纯 Node 测试。
+
+策略层保留内存缓存，以满足同步的 DSH Controller 和 LLM 调用，然后通过选定的存储适配器写入变更。D1 写入在单个进程内串行化；运行多个 DSH 副本前，需要增加更强的并发控制策略。
+
+## 本地测试
 
 ```bash
+npm test
+```
+
+## 安装到 DSH Profile
+
+在 DSH Profile 目录中执行：
+
+```bash
+dsh plugin --profile web add "link:/Users/silverwing/git/dsh-enterprise"
+```
+
+插件通过环境变量配置，因此 Secret 不会放入 `cordis.patch.yml`。可以从 [`.env.example`](./.env.example) 开始，或者直接导出环境变量：
+
+```bash
+cp .env.example .env
+# 编辑 .env，然后把它加载到 DSH 进程中
+set -a; . ./.env; set +a
+
 export WORKOS_API_KEY="sk_..."
 export WORKOS_CLIENT_ID="client_..."
 export WORKOS_ORGANIZATION_ID="org_..."
@@ -58,44 +145,13 @@ export WORKOS_REDIRECT_URI="http://127.0.0.1:3080/auth/callback"
 export WORKOS_COOKIE_SECRET="至少32个随机字符"
 ```
 
-`WORKOS_ORGANIZATION_ID` 会限制当前 DSH 实例只能服务指定的 WorkOS 组织。
-
-在 WorkOS Dashboard 中配置相同的回调地址：
-
-```text
-http://127.0.0.1:3080/auth/callback
-```
-
-WorkOS 相关路由：
-
-```text
-GET /auth/login
-GET /auth/callback
-GET /auth/logout
-GET /auth/me
-```
-
-WorkOS API Key 和 Cookie Secret 必须只存在于 DSH 服务端环境中。
+`WORKOS_ORGANIZATION_ID` 会把这个 DSH 实例绑定到一个 WorkOS 组织。`WORKOS_COOKIE_SECRET` 用于签名本地 HttpOnly Session Cookie，不会发送给 WorkOS 或浏览器。
 
 ## 存储配置
 
-默认使用本地 JSON 文件：
+没有存储配置时，插件会把租户状态保存到 `$DSH_HOME/tenant-state.json`。可以通过 `DSH_TENANT_STATE_FILE` 指定自定义路径。
 
-```text
-$DSH_HOME/tenant-state.json
-```
-
-也可以指定路径：
-
-```bash
-export DSH_TENANT_STATE_FILE="/path/to/tenant-state.json"
-```
-
-本地开发不配置 D1 即可运行。
-
-### Cloudflare D1
-
-DSH 当前运行在 Node 服务中，不能直接使用 Cloudflare Worker 的 D1 binding。因此插件通过 Cloudflare D1 REST API 访问数据库。
+要从基于 Node 的 DSH 进程使用 Cloudflare D1，需要配置 D1 REST API 和加密密钥：
 
 ```bash
 export DSH_TENANT_STORAGE=d1
@@ -105,67 +161,73 @@ export CLOUDFLARE_API_TOKEN="..."
 export DSH_TENANT_ENCRYPTION_KEY="至少32个随机字符"
 ```
 
-D1 模式会自动创建并使用 `dsh_tenant_state` 表。租户状态在发送到 D1 前会加密，其中包括用户级 LLM API Key。
+插件设置中只放非秘密的存储模式和本地路径。Account ID、Database ID、API Token 和加密密钥都放在环境变量中。D1 API Token 只留在服务端，状态数据发送到 Cloudflare 之前会先加密。
 
-D1 配置中的账号 ID、数据库 ID、API Token 和加密密钥都使用环境变量。插件设置只保留本地存储路径、存储模式和非秘密 API 地址等选项。
-
-当前 D1 写入在单个 DSH 进程内串行化。运行多个 DSH 副本前，需要额外设计跨实例并发控制和密钥轮换机制。
-
-## 资源隔离
-
-启用 WorkOS 后，插件会自动包装 DSH 的 Session 和 Workspace Remote Controller：
-
-- Session 列表和搜索结果按用户过滤；
-- Session 创建和 fork 自动登记所有者；
-- prompt、rename、queue、cancel、page、follow 等操作检查 Session 归属；
-- Workspace 创建自动登记所有者；
-- Workspace 修改、删除、排序、Session 插入和归档检查 Workspace/Session 归属；
-- Workspace 和 Session 流只返回当前用户有权访问的数据；
-- 组织管理员可以按策略访问组织内其他用户资源。
-
-自定义 Controller 可以使用导出的 `TenantSessionGuard` 和 `TenantWorkspaceGuard`。
-
-## 用户级 LLM Key
-
-API Key 不通过浏览器返回。Session 的 API Key 根据已登记的 Session 所有者解析：
-
-```js
-const key = ctx.tenantPolicy.resolveSessionApiKey({
-  sessionId,
-  provider: 'openai',
-})
-```
-
-插件不会把 API Key 放进普通描述接口或列表响应中。生产环境仍建议结合专用 Secret Vault 和密钥轮换机制。
-
-## 测试
+## 本地 DSH 测试
 
 ```bash
 pnpm install
-npm test
+export DSH_HOME="$PWD/.dsh-local"
+
+# 把链接形式的插件安装到隔离的 web Profile。
+dsh plugin --profile web add "link:$PWD"
+
+# 执行此命令前必须设置 WorkOS 环境变量。
+dsh --profile web --no-open --host 127.0.0.1 --port 3080
 ```
 
-当前测试覆盖 WorkOS 会话、OAuth state、Session/Workspace 自动授权、本地加密存储和 D1 REST 请求格式。
+打开 DSH 打印出的 URL。启用 WorkOS 后，没有 WorkOS Session 的浏览器请求会跳转到 `/auth/login`，然后跳转到 WorkOS AuthKit。回调完成后会创建签名 HttpOnly Cookie，并返回 DSH。
 
-## GitHub
+只进行策略插件 Smoke Test 时，可以省略 WorkOS 环境变量；插件仍会启动，但 WorkOS 路由和门禁会保持关闭。
 
-仓库地址：
+重置隔离 Profile：
 
-```text
-https://github.com/gepeiyu/dsh-workos-tenant
+```bash
+rm -rf .dsh-local
 ```
 
-上传前必须确认没有提交以下内容：
+WorkOS 官方 SDK 和 AuthKit 流程请参考 [WorkOS Node.js SDK](https://workos.com/docs/sdks/node) 和 [AuthKit](https://workos.com/docs/authkit)。
 
-- `.env` 文件；
-- WorkOS API Key、Client Secret 或 Cookie Secret；
-- Cloudflare API Token 和 D1 加密密钥；
-- DSH Profile；
-- `tenant-state.json`；
-- 私钥、JWT 或客户数据。
+## 当前 API 形式
 
-`.gitignore` 已排除本地环境文件、DSH Profile、依赖目录和租户状态文件。
+```js
+import {
+  TenantPolicy,
+  TenantSessionGuard,
+  SessionKeyRouter,
+  normalizeIdentity,
+} from 'dsh-workos-tenant'
 
-## 许可证
+const policy = new TenantPolicy({
+  adminRoles: ['owner', 'admin'],
+  adminCanManageKeys: false,
+})
+const sessionGuard = new TenantSessionGuard(policy)
+const router = new SessionKeyRouter(policy)
+const identity = normalizeIdentity(hostAuthenticatedIdentity)
 
-MIT License。
+policy.claimSession(identity, sessionId)
+policy.setApiKey(identity, 'openai', apiKey)
+
+// 由宿主的 LLM Adapter 调用。Key 根据 Session 所有者解析。
+const key = router.resolve({
+  sessionId,
+  provider: 'openai',
+})
+
+// 在真实 DSH SessionController 方法外层调用。
+sessionGuard.authorize(identity, { sessionId })
+```
+
+## 集成约定
+
+启用 WorkOS 后，插件会自动包装 DSH 的 Session 和 Workspace Remote Controller。列表和搜索响应会被过滤，创建和 fork 操作会登记资源归属，读取、写入、流式操作和 Workspace 变更都会检查已验证的 WorkOS 身份。导出的 Guard 仍可用于自定义 Controller 和测试。
+
+部署时仍需要：
+
+1. 配置 WorkOS AuthKit 和回调地址；
+2. 只在 DSH 服务端环境中保存 WorkOS、Cloudflare 和 Cookie Secret；
+3. 使用选定的存储适配器保存租户状态；
+4. 根据当前 Session 所有者解析 LLM Key；
+5. 自定义请求级 Controller 使用 `ctx.workosAuth.runWithRequestIdentity(request, callback)`；
+6. 运行多个副本前规划 D1 并发控制和密钥轮换。

@@ -15,7 +15,7 @@ It does not modify DeepSeek Harness source code.
 
 ## GitHub release
 
-The project is intended to be a standalone repository named `dsh-workos-tenant`. The current workspace did not have a Git remote, so create a new empty GitHub repository with that name, then connect this directory:
+The project is a standalone repository named `dsh-workos-tenant`. To publish a fresh checkout to GitHub, create an empty repository with that name and connect it with:
 
 ```bash
 git init -b main
@@ -178,7 +178,7 @@ dsh --profile web --no-open --host 127.0.0.1 --port 3080
 
 Open the URL printed by DSH. With WorkOS enabled, a browser request without a WorkOS session redirects to `/auth/login`, then to WorkOS AuthKit. The callback creates the signed HttpOnly cookie and returns to DSH.
 
-For a policy-only smoke test, omit the four WorkOS variables; the plugin still starts, but the WorkOS routes and gate remain disabled.
+For a policy-only smoke test, omit the WorkOS variables; the plugin still starts, but the WorkOS routes and gate remain disabled.
 
 Reset the isolated profile with:
 
