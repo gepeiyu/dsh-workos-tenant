@@ -99,6 +99,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Standard DSH bundle metadata through `dsh.bundle.patch`.
 - Cordis services exposed as `ctx.tenantPolicy` and `ctx.workosAuth` when WorkOS is enabled.
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
+- Signed-in user or email and organization details in the sidebar, with a sign-out menu.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
 - Automatic redirect of unauthenticated index requests to `/auth/login`.
 - WorkOS authentication required for DSH `/api` and upgrade requests.

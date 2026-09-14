@@ -102,6 +102,42 @@ function identityFromAuthentication(result) {
   return normalizeIdentity({ organizationId, userId, role })
 }
 
+function stringValue(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function accountFromAuthentication(result, identity, organization) {
+  const user = result?.user ?? result?.profile ?? {}
+  const fallbackName = [user.firstName, user.lastName]
+    .map(stringValue)
+    .filter(Boolean)
+    .join(' ')
+  const name = stringValue(user.name) ?? stringValue(fallbackName)
+  return {
+    user: {
+      id: identity.userId,
+      name,
+      email: stringValue(user.email),
+    },
+    organization: {
+      id: identity.organizationId,
+      name: stringValue(organization?.name) ?? identity.organizationId,
+    },
+  }
+}
+
+function workosSessionIdFromAuthentication(result) {
+  const accessToken = result?.accessToken
+  if (typeof accessToken !== 'string') return undefined
+  const payload = accessToken.split('.')[1]
+  if (!payload) return undefined
+  try {
+    return stringValue(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))?.sid)
+  } catch {
+    return undefined
+  }
+}
+
 export class WorkOSAuthSessionStore {
   constructor({
     cookieSecret,
@@ -144,10 +180,12 @@ export class WorkOSAuthSessionStore {
     return true
   }
 
-  createSession(identity) {
+  createSession(identity, account, workosSessionId) {
     const sessionId = randomToken()
     this.sessions.set(sessionId, {
       identity: normalizeIdentity(identity),
+      account: account ?? accountFromAuthentication({}, normalizeIdentity(identity)),
+      workosSessionId: stringValue(workosSessionId),
       expiresAt: Date.now() + this.sessionMaxAgeSeconds * 1000,
     })
     return {
@@ -178,8 +216,16 @@ export class WorkOSAuthSessionStore {
   }
 
   identityFromHeaders(headers) {
+    return this.sessionFromHeaders(headers)?.identity
+  }
+
+  accountFromHeaders(headers) {
+    return this.sessionFromHeaders(headers)?.account
+  }
+
+  sessionFromHeaders(headers) {
     const sessionId = this.sessionIdFromHeaders(headers)
-    return sessionId ? this.sessions.get(sessionId)?.identity : undefined
+    return sessionId ? this.sessions.get(sessionId) : undefined
   }
 
   clearCookies() {
@@ -369,6 +415,18 @@ export class WorkOSAuthService extends Service {
     return identityFromAuthentication({ ...result, role: role ?? 'member' })
   }
 
+  async accountForAuthentication(result, identity) {
+    let organization = result?.organization
+    if (!stringValue(organization?.name) && this.client?.organizations?.getOrganization) {
+      try {
+        organization = await this.client.organizations.getOrganization(identity.organizationId)
+      } catch (error) {
+        this.ctx.logger?.warn?.(`WorkOS organization lookup failed: ${error.message}`)
+      }
+    }
+    return accountFromAuthentication(result, identity, organization)
+  }
+
   async login(res) {
     const { state, setCookie } = this.sessions.createState()
     const result = await this.client.userManagement.getAuthorizationUrl({
@@ -401,7 +459,12 @@ export class WorkOSAuthService extends Service {
     if (identity.organizationId !== this.config.organizationId) {
       return json(res, 403, { error: 'WORKOS_ORGANIZATION_FORBIDDEN' })
     }
-    const session = this.sessions.createSession(identity)
+    const account = await this.accountForAuthentication(result, identity)
+    const session = this.sessions.createSession(
+      identity,
+      account,
+      workosSessionIdFromAuthentication(result),
+    )
     const origin = new URL(this.config.redirectUri).origin
     const dshUrl = this.ctx.connection.authenticatedUrl(`${origin}/`)
     return redirect(res, dshUrl, {
@@ -410,15 +473,32 @@ export class WorkOSAuthService extends Service {
   }
 
   logout(req, res) {
+    const session = this.sessions.sessionFromHeaders(req.headers)
     this.sessions.destroyFromHeaders(req.headers)
-    return redirect(res, '/auth/login', { 'set-cookie': this.sessions.clearCookies() })
+    let location = '/auth/login'
+    if (session?.workosSessionId && this.client?.userManagement?.getLogoutUrl) {
+      try {
+        const origin = new URL(this.config.redirectUri).origin
+        location = this.client.userManagement.getLogoutUrl({
+          sessionId: session.workosSessionId,
+          returnTo: `${origin}/`,
+        })
+      } catch (error) {
+        this.ctx.logger?.warn?.(`WorkOS logout URL creation failed: ${error.message}`)
+      }
+    }
+    return redirect(res, location, { 'set-cookie': this.sessions.clearCookies() })
   }
 
   me(req, res) {
-    const identity = this.sessions.identityFromHeaders(req.headers)
-    if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
-    return json(res, 200, { identity })
+    const session = this.sessions.sessionFromHeaders(req.headers)
+    if (!session) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    return json(res, 200, {
+      identity: session.identity,
+      user: session.account.user,
+      organization: session.account.organization,
+    })
   }
 }
 
-export { identityFromAuthentication }
+export { accountFromAuthentication, identityFromAuthentication }

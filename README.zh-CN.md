@@ -99,6 +99,7 @@ sequenceDiagram
 - 通过 `dsh.bundle.patch` 提供标准 DSH Bundle 元数据；
 - WorkOS 启用时提供 `ctx.tenantPolicy` 和 `ctx.workosAuth` Cordis 服务；
 - WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
+- 登录后在侧栏底部显示用户名或邮箱及组织名，并提供退出登录菜单；
 - 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
 - 未认证的首页请求自动跳转到 `/auth/login`；
 - DSH `/api` 和升级请求必须通过 WorkOS 认证；

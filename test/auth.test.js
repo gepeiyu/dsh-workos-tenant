@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  accountFromAuthentication,
   WorkOSAuthService,
   WorkOSAuthSessionStore,
   identityFromAuthentication,
@@ -77,9 +78,19 @@ test('successful callback preserves the new session cookie', async () => {
   service.client = {
     userManagement: {
       authenticateWithCode: async () => ({
-        user: { id: 'user_alice' },
+        user: {
+          id: 'user_alice',
+          name: 'Alice Example',
+          email: 'alice@example.com',
+        },
         organizationId: 'org_acme',
+        accessToken: `header.${Buffer.from(JSON.stringify({ sid: 'session_workos' })).toString('base64url')}.signature`,
       }),
+      getLogoutUrl: ({ sessionId, returnTo }) =>
+        `https://auth.example/logout?session=${sessionId}&return_to=${encodeURIComponent(returnTo)}`,
+    },
+    organizations: {
+      getOrganization: async id => ({ id, name: 'Acme Corporation' }),
     },
   }
   service.ctx = {
@@ -111,5 +122,81 @@ test('successful callback preserves the new session cookie', async () => {
     organizationId: 'org_acme',
     userId: 'user_alice',
     role: 'member',
+  })
+
+  const authenticatedHeaders = {
+    cookie: response.headers['set-cookie'][0].split(';', 1)[0],
+  }
+  assert.deepEqual(sessions.accountFromHeaders(authenticatedHeaders), {
+    user: {
+      id: 'user_alice',
+      name: 'Alice Example',
+      email: 'alice@example.com',
+    },
+    organization: {
+      id: 'org_acme',
+      name: 'Acme Corporation',
+    },
+  })
+
+  let meResponse
+  service.me({ headers: authenticatedHeaders }, {
+    writeHead(status, headers) { meResponse = { status, headers } },
+    end(body) { meResponse.body = JSON.parse(body) },
+  })
+  assert.equal(meResponse.status, 200)
+  assert.deepEqual(meResponse.body, {
+    identity: {
+      organizationId: 'org_acme',
+      userId: 'user_alice',
+      role: 'member',
+    },
+    user: {
+      id: 'user_alice',
+      name: 'Alice Example',
+      email: 'alice@example.com',
+    },
+    organization: {
+      id: 'org_acme',
+      name: 'Acme Corporation',
+    },
+  })
+
+  let logoutResponse
+  service.logout({ headers: authenticatedHeaders }, {
+    writeHead(status, headers) { logoutResponse = { status, headers } },
+    end() {},
+  })
+  assert.equal(logoutResponse.status, 302)
+  assert.equal(
+    logoutResponse.headers.location,
+    'https://auth.example/logout?session=session_workos&return_to=http%3A%2F%2F127.0.0.1%3A3080%2F',
+  )
+  assert.equal(logoutResponse.headers['set-cookie'].length, 2)
+  assert.equal(sessions.identityFromHeaders(authenticatedHeaders), undefined)
+})
+
+test('account profile falls back to email parts and organization id', () => {
+  assert.deepEqual(accountFromAuthentication({
+    user: {
+      id: 'user_alice',
+      email: 'alice@example.com',
+      firstName: 'Alice',
+      lastName: 'Example',
+    },
+  }, {
+    organizationId: 'org_acme',
+    userId: 'user_alice',
+    role: 'member',
+  }), {
+    user: {
+      id: 'user_alice',
+      name: 'Alice Example',
+      email: 'alice@example.com',
+    },
+    organization: {
+      id: 'org_acme',
+      name: 'org_acme',
+    },
   })
 })
