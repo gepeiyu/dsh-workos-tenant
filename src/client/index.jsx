@@ -14,6 +14,7 @@ const zh = {
   logout: '退出登录',
   signedInAs: '当前用户',
   organization: '组织',
+  role: '角色',
   tenantTab: 'WorkOS 租户',
   tenantTitle: 'WorkOS 租户配置',
   tenantIntro: '管理登录、访问策略和租户状态存储。访问策略立即生效，其余变更将在重启 DSH 后生效。',
@@ -58,6 +59,7 @@ const en = {
   logout: 'Sign out',
   signedInAs: 'Signed in as',
   organization: 'Organization',
+  role: 'Role',
   tenantTab: 'WorkOS tenant',
   tenantTitle: 'WorkOS tenant configuration',
   tenantIntro: 'Manage sign-in, access policy, and tenant-state storage. Access policy applies now; other changes apply after restarting DSH.',
@@ -315,6 +317,32 @@ function installSettingsVisibility(ctx) {
   }
 }
 
+// DSH keeps Settings scopes in memory for non-loopback browsers and skips the
+// describe/mutate RPCs entirely. WorkOS authentication provides the missing
+// per-user boundary, so allow those scopes to use the authenticated API.
+let remoteSettingsUnpinned = false
+
+function unpinRemoteSettingsScopes() {
+  if (remoteSettingsUnpinned) return
+  try {
+    const uiSettings = require('@deepseek-ai/dsh-client-ui-settings')
+    const Controller = uiSettings?.SettingsScopeController
+    if (typeof Controller?.prototype?.enqueue !== 'function') return
+    Controller.prototype.enqueue = function (operation) {
+      if (this.disposed) return Promise.resolve()
+      const task = this.tail.then(async () => {
+        if (this.disposed) return
+        await operation()
+      })
+      this.tail = task.catch(() => {})
+      return task
+    }
+    remoteSettingsUnpinned = true
+  } catch {
+    // Older DSH builds do not expose the controller; preserve their behavior.
+  }
+}
+
 function Field({ label, hint, wide, children }) {
   return (
     <label className={`dsh-workos-settings__field${wide ? ' dsh-workos-settings__field--wide' : ''}`}>
@@ -545,6 +573,7 @@ function AccountAction({ wide, t }) {
         items={[
           { type: 'label', id: 'user', text: `${t('signedInAs')}: ${primary}` },
           { type: 'label', id: 'organization', text: `${t('organization')}: ${organization}` },
+          { type: 'label', id: 'role', text: `${t('role')}: ${account.identity.role}` },
           { type: 'separator', id: 'account-separator' },
           { id: 'logout', label: t('logout'), danger: true },
         ]}
@@ -576,6 +605,7 @@ function installStyles() {
 export const inject = ['slots', 'locale']
 
 export function apply(ctx) {
+  unpinRemoteSettingsScopes()
   ctx.effect(installStyles, 'workos-account: styles')
   ctx.effect(() => installSettingsVisibility(ctx), 'workos-account: settings visibility')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workos-account: dictionaries')

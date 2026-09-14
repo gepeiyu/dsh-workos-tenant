@@ -40,6 +40,14 @@ test('organization admins can inspect sessions but cannot cross organizations', 
   expectTenantError(() => policy.assertSessionAccess({ ...admin, organizationId: 'org_other' }, 'session-1'), 'SESSION_ORGANIZATION_MISMATCH')
 })
 
+test('empty adminRoles makes every role user-scoped', () => {
+  const policy = new TenantPolicy({ adminRoles: [] })
+  policy.claimSession(alice, 'session-1')
+  policy.claimWorkspace(alice, 'workspace-1')
+  expectTenantError(() => policy.assertSessionAccess(admin, 'session-1'), 'SESSION_FORBIDDEN')
+  expectTenantError(() => policy.assertWorkspaceAccess(admin, 'workspace-1'), 'WORKSPACE_FORBIDDEN')
+})
+
 test('session key routing derives the key from the registered owner', () => {
   const policy = new TenantPolicy()
   const router = new SessionKeyRouter(policy)

@@ -16,6 +16,8 @@ import {
 } from './model-scope.js'
 
 export class TenantPolicyService extends Service {
+  static inject = ['sessionController', 'workspaceController']
+
   static Config = Schema.object({
     adminRoles: Schema.array(Schema.string()).default(['owner', 'admin']),
     adminCanManageKeys: Schema.boolean().default(false),
