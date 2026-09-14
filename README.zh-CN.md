@@ -155,6 +155,8 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 「允许同一网络中的其他设备访问 DSH」默认关闭。开启后保存并重启，Web 服务会监听 `0.0.0.0`，DSH 启动日志会打印类似 `http://172.20.5.172:3080/?token=...` 的局域网地址。浏览器 Host/Origin 校验会信任检测到的局域网 IPv4 地址，WorkOS 登录仍然有效。请使用系统或网络防火墙限制端口访问范围。
 
+开启网络访问后，AuthKit 回调会跟随打开 DSH 时使用的主机，确保 OAuth 状态 Cookie 与回调保持同源。请在 WorkOS 控制台登记所有可能使用的完整回调地址，例如 `http://127.0.0.1:3080/auth/callback`、`http://172.20.5.172:3080/auth/callback` 和 `https://dsh.example.com/auth/callback`；同时把对应的根地址（例如 `http://172.20.5.172:3080/`）加入 Sign-out URI。WorkOS staging 环境允许局域网 HTTP 回调，production Web 应用需要使用 HTTPS 域名（原生客户端的回环地址例外）。配置中的回调地址仍作为本机访问或请求主机无效时的默认值。
+
 `adminRoles` 控制跨用户可视范围，默认值为 `owner, admin`。如果管理员只需要管理配置而不能查看其他用户的 Session 或 Workspace，可将它设置为空数组（表单中留空）。`adminCanManageKeys` 独立控制管理员是否可以管理其他用户的模型凭据。
 
 member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。

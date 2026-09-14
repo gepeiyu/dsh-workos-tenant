@@ -28,6 +28,7 @@ const zh = {
   clientId: 'Client ID',
   organizationId: 'Organization ID',
   redirectUri: '回调地址',
+  redirectUriHint: '默认用于本机登录。开启网络访问后会自动改为当前访问主机；请在 WorkOS 中登记每个完整回调地址及对应退出地址。production 环境请使用 HTTPS 域名。',
   apiKey: 'API Key',
   cookieSecret: 'Cookie Secret',
   sessionMaxAge: '登录有效期（秒）',
@@ -71,6 +72,7 @@ const en = {
   clientId: 'Client ID',
   organizationId: 'Organization ID',
   redirectUri: 'Redirect URI',
+  redirectUriHint: 'Used as the local default. With network access enabled, the current host is used automatically; register every callback and matching sign-out URL in WorkOS. Use an HTTPS domain in production.',
   apiKey: 'API key',
   cookieSecret: 'Cookie secret',
   sessionMaxAge: 'Session lifetime (seconds)',
@@ -461,7 +463,7 @@ function TenantSettingsTab({ t }) {
         <div className="dsh-workos-settings__grid">
           <Field label={t('clientId')}><input className="dsh-workos-settings__input" value={draft.workos.clientId} onChange={event => { change(['workos', 'clientId'], event.target.value) }} /></Field>
           <Field label={t('organizationId')}><input className="dsh-workos-settings__input" value={draft.workos.organizationId} onChange={event => { change(['workos', 'organizationId'], event.target.value) }} /></Field>
-          <Field label={t('redirectUri')} wide><input className="dsh-workos-settings__input" type="url" value={draft.workos.redirectUri} onChange={event => { change(['workos', 'redirectUri'], event.target.value) }} /></Field>
+          <Field label={t('redirectUri')} hint={t('redirectUriHint')} wide><input className="dsh-workos-settings__input" type="url" value={draft.workos.redirectUri} onChange={event => { change(['workos', 'redirectUri'], event.target.value) }} /></Field>
           <SecretField label={t('apiKey')} configured={draft.workos.apiKeyConfigured} value={secrets.apiKey} t={t} onChange={value => { setSecrets(current => ({ ...current, apiKey: value })) }} />
           <SecretField label={t('cookieSecret')} configured={draft.workos.cookieSecretConfigured} value={secrets.cookieSecret} t={t} onChange={value => { setSecrets(current => ({ ...current, cookieSecret: value })) }} />
           <Field label={t('sessionMaxAge')}><input className="dsh-workos-settings__input" type="number" min="300" max="31536000" value={draft.workos.sessionMaxAgeSeconds} onChange={event => { change(['workos', 'sessionMaxAgeSeconds'], Number(event.target.value)) }} /></Field>

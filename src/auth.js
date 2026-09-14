@@ -181,9 +181,12 @@ export class WorkOSAuthSessionStore {
     this.states = new Map()
   }
 
-  createState() {
+  createState(redirectUri) {
     const state = randomToken()
-    this.states.set(state, Date.now() + STATE_MAX_AGE_SECONDS * 1000)
+    this.states.set(state, {
+      expiresAt: Date.now() + STATE_MAX_AGE_SECONDS * 1000,
+      redirectUri: stringValue(redirectUri),
+    })
     return {
       state,
       setCookie: cookie(this.stateCookieName, state, {
@@ -193,22 +196,26 @@ export class WorkOSAuthSessionStore {
     }
   }
 
-  consumeState(state, requestHeaders) {
+  consumeState(state, requestHeaders, redirectUri) {
     const cookieState = parseCookies(requestHeaders).get(this.stateCookieName)
-    const expiresAt = this.states.get(state)
+    const record = this.states.get(state)
     this.states.delete(state)
-    if (!state || !cookieState || cookieState !== state || !expiresAt || expiresAt < Date.now()) {
+    const expiresAt = typeof record === 'number' ? record : record?.expiresAt
+    const expectedRedirectUri = typeof record === 'object' ? record?.redirectUri : undefined
+    if (!state || !cookieState || cookieState !== state || !expiresAt || expiresAt < Date.now() ||
+        (expectedRedirectUri && expectedRedirectUri !== redirectUri)) {
       return false
     }
     return true
   }
 
-  createSession(identity, account, workosSessionId) {
+  createSession(identity, account, workosSessionId, returnTo) {
     const sessionId = randomToken()
     this.sessions.set(sessionId, {
       identity: normalizeIdentity(identity),
       account: account ?? accountFromAuthentication({}, normalizeIdentity(identity)),
       workosSessionId: stringValue(workosSessionId),
+      returnTo: stringValue(returnTo),
       expiresAt: Date.now() + this.sessionMaxAgeSeconds * 1000,
     })
     return {
@@ -378,7 +385,7 @@ export class WorkOSAuthService extends Service {
     register({
       kind: 'exact',
       path: '/auth/login',
-      handler: (_req, res) => this.login(res),
+      handler: (req, res) => this.login(req, res),
     })
     register({
       kind: 'exact',
@@ -461,13 +468,39 @@ export class WorkOSAuthService extends Service {
     return accountFromAuthentication(result, identity, organization)
   }
 
-  async login(res) {
-    const { state, setCookie } = this.sessions.createState()
+  requestRedirectUri(req) {
+    const configured = new URL(this.config.redirectUri)
+    if (this.management?.effectiveConfig?.network?.allowNetworkAccess !== true) {
+      return configured.toString()
+    }
+
+    const forwardedHost = headerValue(req?.headers, 'x-forwarded-host')?.split(',', 1)[0]?.trim()
+    const host = forwardedHost ?? headerValue(req?.headers, 'host')?.trim()
+    if (!host) return configured.toString()
+
+    const forwardedProtocol = headerValue(req?.headers, 'x-forwarded-proto')
+      ?.split(',', 1)[0]?.trim().toLowerCase()
+    const protocol = forwardedProtocol === 'http' || forwardedProtocol === 'https'
+      ? `${forwardedProtocol}:`
+      : req?.socket
+        ? (req.socket.encrypted ? 'https:' : 'http:')
+        : configured.protocol
+    try {
+      const origin = new URL(`${protocol}//${host}`).origin
+      return new URL(configured.pathname, `${origin}/`).toString()
+    } catch {
+      return configured.toString()
+    }
+  }
+
+  async login(req, res) {
+    const redirectUri = this.requestRedirectUri(req)
+    const { state, setCookie } = this.sessions.createState(redirectUri)
     const result = await this.client.userManagement.getAuthorizationUrl({
       provider: 'authkit',
       clientId: this.config.clientId,
       organizationId: this.config.organizationId,
-      redirectUri: this.config.redirectUri,
+      redirectUri,
       state,
     })
     const location = typeof result === 'string' ? result : result.url
@@ -477,11 +510,12 @@ export class WorkOSAuthService extends Service {
 
   async callback(req, res) {
     const url = new URL(req.url ?? '/', 'http://dsh.internal')
+    const redirectUri = this.requestRedirectUri(req)
     const error = url.searchParams.get('error')
     const code = url.searchParams.get('code')
     const state = url.searchParams.get('state')
     if (error) return json(res, 401, { error: 'WORKOS_AUTH_FAILED', detail: error })
-    if (!code || !this.sessions.consumeState(state, req.headers)) {
+    if (!code || !this.sessions.consumeState(state, req.headers, redirectUri)) {
       return json(res, 400, { error: 'WORKOS_CALLBACK_INVALID' })
     }
 
@@ -498,8 +532,9 @@ export class WorkOSAuthService extends Service {
       identity,
       account,
       workosSessionIdFromAuthentication(result),
+      `${new URL(redirectUri).origin}/`,
     )
-    const origin = new URL(this.config.redirectUri).origin
+    const origin = new URL(redirectUri).origin
     const dshUrl = this.ctx.connection.authenticatedUrl(`${origin}/`)
     return redirect(res, dshUrl, {
       'set-cookie': [session.setCookie, this.sessions.clearStateCookie()],
@@ -515,7 +550,7 @@ export class WorkOSAuthService extends Service {
         const origin = new URL(this.config.redirectUri).origin
         location = this.client.userManagement.getLogoutUrl({
           sessionId: session.workosSessionId,
-          returnTo: `${origin}/`,
+          returnTo: session.returnTo ?? `${origin}/`,
         })
       } catch (error) {
         this.ctx.logger?.warn?.(`WorkOS logout URL creation failed: ${error.message}`)

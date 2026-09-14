@@ -41,6 +41,87 @@ test('OAuth state requires the matching HttpOnly state cookie', () => {
   assert.equal(store.consumeState(state, headers), false)
 })
 
+test('network login keeps AuthKit callbacks on the requested host', async () => {
+  const sessions = new WorkOSAuthSessionStore({
+    cookieSecret: 'n'.repeat(32),
+    secureCookies: false,
+  })
+  const service = Object.create(WorkOSAuthService.prototype)
+  service.sessions = sessions
+  service.config = {
+    clientId: 'client_test',
+    organizationId: 'org_acme',
+    redirectUri: 'http://127.0.0.1:3080/auth/callback',
+  }
+  service.management = {
+    effectiveConfig: { network: { allowNetworkAccess: true } },
+  }
+  let authorization
+  service.client = {
+    userManagement: {
+      getAuthorizationUrl: options => {
+        authorization = options
+        return 'https://auth.example/authorize'
+      },
+      authenticateWithCode: async () => ({
+        user: { id: 'user_alice', email: 'alice@example.com' },
+        organizationId: 'org_acme',
+        accessToken: `header.${Buffer.from(JSON.stringify({ sid: 'session_workos' })).toString('base64url')}.signature`,
+      }),
+      getLogoutUrl: ({ returnTo }) => `https://auth.example/logout?return_to=${encodeURIComponent(returnTo)}`,
+    },
+  }
+  service.ctx = {
+    connection: { authenticatedUrl: url => url },
+  }
+
+  let loginResponse
+  await service.login({
+    headers: { host: '172.20.5.172:3080' },
+    socket: { encrypted: false },
+  }, {
+    writeHead(status, headers) { loginResponse = { status, headers } },
+    end() {},
+  })
+  assert.equal(authorization.redirectUri, 'http://172.20.5.172:3080/auth/callback')
+  assert.equal(loginResponse.status, 302)
+
+  let callbackResponse
+  const requestHeaders = {
+    host: '172.20.5.172:3080',
+    cookie: loginResponse.headers['set-cookie'].split(';', 1)[0],
+  }
+  await service.callback({
+    url: `/auth/callback?code=code_test&state=${authorization.state}`,
+    headers: requestHeaders,
+    socket: { encrypted: false },
+  }, {
+    writeHead(status, headers) { callbackResponse = { status, headers } },
+    end() {},
+  })
+  assert.equal(callbackResponse.status, 302)
+  assert.equal(callbackResponse.headers.location, 'http://172.20.5.172:3080/')
+
+  let logoutResponse
+  service.logout({
+    headers: { cookie: callbackResponse.headers['set-cookie'][0].split(';', 1)[0] },
+  }, {
+    writeHead(status, headers) { logoutResponse = { status, headers } },
+    end() {},
+  })
+  assert.equal(
+    logoutResponse.headers.location,
+    'https://auth.example/logout?return_to=http%3A%2F%2F172.20.5.172%3A3080%2F',
+  )
+  assert.equal(service.requestRedirectUri({
+    headers: {
+      host: '127.0.0.1:3080',
+      'x-forwarded-host': 'dsh.example.com',
+      'x-forwarded-proto': 'https',
+    },
+  }), 'https://dsh.example.com/auth/callback')
+})
+
 test('WorkOS auth auto-enables only with an organization binding', () => {
   const base = {
     apiKey: 'sk_test',
