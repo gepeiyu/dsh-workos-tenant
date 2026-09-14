@@ -357,17 +357,20 @@ export class TenantPolicyService extends Service {
     const service = this
     const requireIdentity = () => service.currentIdentity()
     const sessionRequest = original => function (request, ...args) {
-      guard.authorize(requireIdentity(), request)
+      const current = requireIdentity()
+      guard.authorize(current, request)
       return original.call(this, request, ...args)
     }
     this.patchPrototype(controller, {
       list: original => function (request, ...args) {
+        const current = requireIdentity()
         const result = original.call(this, request, ...args)
-        return Promise.resolve(result).then(value => guard.filter(requireIdentity(), value))
+        return Promise.resolve(result).then(value => guard.filter(current, value))
       },
       search: original => function (request, ...args) {
+        const current = requireIdentity()
         const result = original.call(this, request, ...args)
-        return Promise.resolve(result).then(value => guard.filter(requireIdentity(), value))
+        return Promise.resolve(result).then(value => guard.filter(current, value))
       },
       create: original => function (request, ...args) {
         const identity = requireIdentity()
@@ -393,17 +396,17 @@ export class TenantPolicyService extends Service {
         return original.call(this, request, ...args)
       },
       follow: original => function (request, ...args) {
-        guard.authorizeAddress(requireIdentity(), request)
+        const current = requireIdentity()
+        guard.authorizeAddress(current, request)
         return original.call(this, request, ...args)
       },
       control: original => function (...args) {
-        requireIdentity()
+        const current = requireIdentity()
         const stream = original.call(this, ...args)
         return (async function* () {
           for await (const frame of stream) {
-            const identity = requireIdentity()
             if (frame?.type === 'baseline') {
-              const allowed = key => service.canAccessSession(identity, key)
+              const allowed = key => service.canAccessSession(current, key)
               const filterMap = value => Object.fromEntries(
                 Object.entries(value ?? {}).filter(([key]) => allowed(key)),
               )
@@ -413,7 +416,7 @@ export class TenantPolicyService extends Service {
                 jobs: filterMap(frame.value?.jobs),
                 projections: filterMap(frame.value?.projections),
               } }
-            } else if (frame?.sessionId === undefined || service.canAccessSession(identity, frame.sessionId)) {
+            } else if (frame?.sessionId === undefined || service.canAccessSession(current, frame.sessionId)) {
               yield frame
             }
           }
@@ -453,28 +456,25 @@ export class TenantPolicyService extends Service {
         return original.call(this, request, ...args)
       },
       follow: original => function (...args) {
-        requireIdentity()
+        const current = requireIdentity()
         const stream = original.call(this, ...args)
         return (async function* () {
           for await (const frame of stream) {
             if (frame?.type === 'baseline') {
-              const identity = requireIdentity()
               const value = frame.value
               yield { ...frame, value: {
                 ...value,
-                items: (value.items ?? []).filter(item => service.canAccessWorkspace(identity, item.workspaceId)),
-                archivedSessionIds: (value.archivedSessionIds ?? []).filter(id => service.canAccessSession(identity, id)),
+                items: (value.items ?? []).filter(item => service.canAccessWorkspace(current, item.workspaceId)),
+                archivedSessionIds: (value.archivedSessionIds ?? []).filter(id => service.canAccessSession(current, id)),
               } }
             } else if (frame?.type === 'upsert') {
-              if (service.canAccessWorkspace(requireIdentity(), frame.workspace?.workspaceId)) yield frame
+              if (service.canAccessWorkspace(current, frame.workspace?.workspaceId)) yield frame
             } else if (frame?.type === 'remove') {
-              if (service.canAccessWorkspace(requireIdentity(), frame.workspaceId)) yield frame
+              if (service.canAccessWorkspace(current, frame.workspaceId)) yield frame
             } else if (frame?.type === 'order') {
-              const identity = requireIdentity()
-              yield { ...frame, workspaceIds: frame.workspaceIds.filter(id => service.canAccessWorkspace(identity, id)) }
+              yield { ...frame, workspaceIds: frame.workspaceIds.filter(id => service.canAccessWorkspace(current, id)) }
             } else if (frame?.type === 'archived') {
-              const identity = requireIdentity()
-              yield { ...frame, archivedSessionIds: frame.archivedSessionIds.filter(id => service.canAccessSession(identity, id)) }
+              yield { ...frame, archivedSessionIds: frame.archivedSessionIds.filter(id => service.canAccessSession(current, id)) }
             }
           }
         })()

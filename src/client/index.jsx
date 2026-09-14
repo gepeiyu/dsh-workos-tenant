@@ -6,6 +6,7 @@ import {
   Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { installSessionVisibility } from './visibility.js'
 
 const NS = 'workos.account'
 
@@ -602,10 +603,11 @@ function installStyles() {
   return () => { tag.remove() }
 }
 
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'sessions']
 
 export function apply(ctx) {
   unpinRemoteSettingsScopes()
+  ctx.effect(() => installSessionVisibility(ctx), 'workos-account: session visibility')
   ctx.effect(installStyles, 'workos-account: styles')
   ctx.effect(() => installSettingsVisibility(ctx), 'workos-account: settings visibility')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workos-account: dictionaries')

@@ -53,3 +53,53 @@ test('automatic Workspace controller guard claims and checks resources', async (
   assert.deepEqual(service.policy.assertWorkspaceAccess(alice, 'workspace-alice').userId, 'alice')
   assert.throws(() => controller.rename({ workspaceId: 'workspace-bob', title: 'x' }), /another user/)
 })
+
+test('stream guards retain the identity captured when the stream opens', async () => {
+  const alice = { organizationId: 'org-1', userId: 'alice', role: 'member' }
+  const bob = { organizationId: 'org-1', userId: 'bob', role: 'member' }
+  const service = testService(alice)
+  service.policy.claimSession(alice, 'session-alice')
+  service.policy.claimSession(bob, 'session-bob')
+  service.policy.claimWorkspace(alice, 'workspace-alice')
+  service.policy.claimWorkspace(bob, 'workspace-bob')
+
+  class SessionController {
+    async *control() {
+      yield { type: 'baseline', value: { queues: { 'session-alice': 1, 'session-bob': 1 } } }
+      yield { sessionId: 'session-bob', value: 'hidden' }
+      yield { sessionId: 'session-alice', value: 'visible' }
+    }
+  }
+  class WorkspaceController {
+    async *follow() {
+      yield { type: 'baseline', value: {
+        items: [
+          { workspaceId: 'workspace-alice', sessionIds: ['session-alice'] },
+          { workspaceId: 'workspace-bob', sessionIds: ['session-bob'] },
+        ],
+        archivedSessionIds: ['session-alice', 'session-bob'],
+      } }
+    }
+  }
+
+  const sessions = new SessionController()
+  const workspaces = new WorkspaceController()
+  service.patchSessionController(sessions)
+  service.patchWorkspaceController(workspaces)
+  const sessionStream = sessions.control()
+  const workspaceStream = workspaces.follow()
+  service.auth.currentIdentity = () => bob
+
+  const sessionFrames = []
+  for await (const frame of sessionStream) sessionFrames.push(frame)
+  const workspaceFrames = []
+  for await (const frame of workspaceStream) workspaceFrames.push(frame)
+  assert.deepEqual(sessionFrames, [
+    { type: 'baseline', value: { queues: { 'session-alice': 1 }, jobs: {}, projections: {} } },
+    { sessionId: 'session-alice', value: 'visible' },
+  ])
+  assert.deepEqual(workspaceFrames, [{ type: 'baseline', value: {
+    items: [{ workspaceId: 'workspace-alice', sessionIds: ['session-alice'] }],
+    archivedSessionIds: ['session-alice'],
+  } }])
+})
