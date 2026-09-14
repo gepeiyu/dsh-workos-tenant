@@ -1,6 +1,6 @@
 {
   "name": "dsh-workos-tenant",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "WorkOS-authenticated organization tenant plugin for DeepSeek Harness",
   "type": "module",
   "license": "MIT",
@@ -13,6 +13,8 @@
     "./policy": "./src/policy.js",
     "./guards": "./src/guards.js",
     "./auth": "./src/auth.js",
+    "./config": "./src/config.js",
+    "./model-scope": "./src/model-scope.js",
     "./storage": "./src/storage.js",
     "./service": "./src/service.js"
   },
@@ -46,7 +48,9 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ],
       "platform": "web"
     }

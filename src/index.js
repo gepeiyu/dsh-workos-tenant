@@ -14,6 +14,22 @@ export {
   resolveTenantStorageConfig,
 } from './storage.js'
 export {
+  ManagedTenantConfigStore,
+  TenantConfigError,
+  mergeTenantConfig,
+  normalizeManagedTenantConfig,
+  publicManagedTenantConfig,
+} from './config.js'
+export {
+  canSeeProvider,
+  filterMemberNamespace,
+  filterMemberProviders,
+  filterModelCatalog,
+  isConfigurationAdmin,
+  tenantCredentialRef,
+  tenantProviderPrefix,
+} from './model-scope.js'
+export {
   WorkOSAuthService,
   WorkOSAuthSessionStore,
   identityFromAuthentication,

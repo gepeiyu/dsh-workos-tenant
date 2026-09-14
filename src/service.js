@@ -2,7 +2,18 @@ import { Service } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { SessionKeyRouter, TenantError, TenantPolicy } from './policy.js'
 import { WorkOSAuthService, resolveWorkOSConfig } from './auth.js'
-import { createTenantStorage } from './storage.js'
+import { createTenantStorage, resolveTenantStorageConfig } from './storage.js'
+import { ManagedTenantConfigStore, mergeTenantConfig } from './config.js'
+import {
+  filterMemberNamespace,
+  filterMemberProviders,
+  filterModelCatalog,
+  isConfigurationAdmin,
+  mapRpcValue,
+  rewriteMemberModelOps,
+  rpcForbidden,
+  tenantCredentialRef,
+} from './model-scope.js'
 
 export class TenantPolicyService extends Service {
   static Config = Schema.object({
@@ -12,16 +23,15 @@ export class TenantPolicyService extends Service {
     storage: Schema.object({
       mode: Schema.union([Schema.const('local'), Schema.const('d1')]).default('local'),
       filePath: Schema.string().description('Local tenant state JSON path'),
-      d1: Schema.object({
-        apiBaseUrl: Schema.string(),
-      }).collapse(true),
+      encryptionKey: Schema.string().role('secret').hidden(),
+      d1: Schema.any().hidden(),
     }).collapse(true),
   })
 
   constructor(ctx, config = {}) {
     super(ctx, 'tenantPolicy')
     this.config = config
-    this.storage = createTenantStorage(config.storage)
+    this.storage = createTenantStorage(config.storage, { preferConfig: true })
     this.policy = new TenantPolicy({
       ...config,
       onChange: state => this.persistState(state),
@@ -32,7 +42,12 @@ export class TenantPolicyService extends Service {
   async [Service.init]() {
     this.policy.hydrate(await this.storage.load())
     this.auth = this.ctx.get('workosAuth', false)
-    if (this.auth) this.installControllerGuards()
+    if (this.auth) this.installRuntimeGuards()
+  }
+
+  updateAccessPolicy(config) {
+    this.config = { ...this.config, ...config }
+    this.policy.configure(config)
   }
 
   async persistState(state) {
@@ -112,13 +127,186 @@ export class TenantPolicyService extends Service {
     return identity
   }
 
-  installControllerGuards() {
+  installRuntimeGuards() {
     this.patchSessionController(this.ctx.get('sessionController', false))
     this.patchWorkspaceController(this.ctx.get('workspaceController', false))
+    this.patchApiProxy(this.ctx.get('apiProxy', false))
+    this.patchCredentialProvider(this.ctx.get('credentials', false))
+    this.patchAdminService(this.ctx.get('pluginInventory', false), ['list'])
     this.ctx.on('internal/service', name => {
       if (name === 'sessionController') this.patchSessionController(this.ctx.get(name, false))
       if (name === 'workspaceController') this.patchWorkspaceController(this.ctx.get(name, false))
+      if (name === 'apiProxy') this.patchApiProxy(this.ctx.get(name, false))
+      if (name === 'credentials') this.patchCredentialProvider(this.ctx.get(name, false))
+      if (name === 'pluginInventory') this.patchAdminService(this.ctx.get(name, false), ['list'])
     })
+  }
+
+  patchAdminService(service, methods) {
+    const target = service?.[Symbol.for('cordis.original')] ?? service
+    const prototype = target && Object.getPrototypeOf(target)
+    if (!prototype || prototype === Object.prototype || prototype.__dshTenantAdminGuarded) return
+    const originals = new Map()
+    for (const name of methods) {
+      if (typeof prototype[name] !== 'function') continue
+      const original = prototype[name]
+      originals.set(name, original)
+      const tenant = this
+      prototype[name] = function (...args) {
+        if (!isConfigurationAdmin(tenant.currentIdentity())) {
+          throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required', 403)
+        }
+        return original.call(this, ...args)
+      }
+    }
+    if (originals.size === 0) return
+    Object.defineProperty(prototype, '__dshTenantAdminGuarded', { value: true, configurable: true })
+    this.ctx.effect(() => {
+      for (const [name, original] of originals) prototype[name] = original
+      delete prototype.__dshTenantAdminGuarded
+    }, 'tenant-policy: restore admin service guards')
+  }
+
+  patchCredentialProvider(provider) {
+    const target = provider?.[Symbol.for('cordis.original')] ?? provider
+    const prototype = target && Object.getPrototypeOf(target)
+    if (!prototype || prototype === Object.prototype || prototype.__dshTenantCredentials) return
+    const originals = Object.fromEntries(['resolve', 'describe', 'set', 'unset']
+      .filter(name => typeof prototype[name] === 'function')
+      .map(name => [name, prototype[name]]))
+    if (Object.keys(originals).length !== 4) return
+    const service = this
+    prototype.resolve = async function (ref, ...args) {
+      const identity = service.auth.currentIdentity()
+      if (!identity) return originals.resolve.call(this, ref, ...args)
+      const scoped = await originals.resolve.call(this, tenantCredentialRef(identity, String(ref)), ...args)
+      return scoped ?? originals.resolve.call(this, ref, ...args)
+    }
+    prototype.describe = async function (ref, ...args) {
+      const identity = service.auth.currentIdentity()
+      if (!identity) return originals.describe.call(this, ref, ...args)
+      const scopedRef = tenantCredentialRef(identity, String(ref))
+      const scoped = await originals.describe.call(this, scopedRef, ...args)
+      if (scoped.configured) return { ...scoped, source: 'user' }
+      const shared = await originals.describe.call(this, ref, ...args)
+      return shared.configured ? { ...shared, writable: scoped.writable } : scoped
+    }
+    prototype.set = function (ref, value, ...args) {
+      const identity = service.auth.currentIdentity()
+      const targetRef = identity ? tenantCredentialRef(identity, String(ref)) : ref
+      return originals.set.call(this, targetRef, value, ...args)
+    }
+    prototype.unset = function (ref, ...args) {
+      const identity = service.auth.currentIdentity()
+      const targetRef = identity ? tenantCredentialRef(identity, String(ref)) : ref
+      return originals.unset.call(this, targetRef, ...args)
+    }
+    Object.defineProperty(prototype, '__dshTenantCredentials', { value: true, configurable: true })
+    this.ctx.effect(() => {
+      for (const [name, original] of Object.entries(originals)) prototype[name] = original
+      delete prototype.__dshTenantCredentials
+    }, 'tenant-policy: restore credential scoping')
+  }
+
+  patchApiProxy(proxy) {
+    const target = proxy?.[Symbol.for('cordis.original')] ?? proxy
+    if (!target || target.__dshTenantApiGuarded) return
+    const settings = target.settings
+    const llm = target.llm
+    const sessions = target.sessions
+    const agentPresets = target.agentPresets
+    if (!settings || !llm || !sessions) return
+    const originals = {
+      settings: Object.fromEntries(['describe', 'openDocument', 'update', 'replace', 'mutate']
+        .filter(name => typeof settings[name] === 'function').map(name => [name, settings[name]])),
+      llm: Object.fromEntries(['providers', 'models']
+        .filter(name => typeof llm[name] === 'function').map(name => [name, llm[name]])),
+      sessions: typeof sessions.models === 'function' ? { models: sessions.models } : {},
+      agentPresets: Object.fromEntries(['copy', 'openDocument', 'remove']
+        .filter(name => typeof agentPresets?.[name] === 'function').map(name => [name, agentPresets[name]])),
+    }
+    const service = this
+    const identity = () => service.currentIdentity()
+    const directory = () => service.ctx.llm.listConfigurableProviders()
+    const modelNamespaces = () => new Set(directory().map(entry => entry.settingsNs))
+
+    settings.describe = async function (request, ...args) {
+      const current = identity()
+      const response = await originals.settings.describe.call(this, request, ...args)
+      if (isConfigurationAdmin(current)) return response
+      const entries = directory()
+      const allowed = modelNamespaces()
+      return mapRpcValue(response, value => ({
+        ...value,
+        hasDocument: false,
+        namespaces: (value.namespaces ?? [])
+          .filter(namespace => allowed.has(namespace.ns))
+          .map(namespace => filterMemberNamespace(current, entries, namespace)),
+      }))
+    }
+    for (const name of ['openDocument', 'update', 'replace']) {
+      if (!originals.settings[name]) continue
+      settings[name] = function (request, ...args) {
+        const current = identity()
+        if (!isConfigurationAdmin(current)) return Promise.resolve(rpcForbidden(request))
+        return originals.settings[name].call(this, request, ...args)
+      }
+    }
+    settings.mutate = async function (request, ...args) {
+      const current = identity()
+      if (isConfigurationAdmin(current)) return originals.settings.mutate.call(this, request, ...args)
+      if (!modelNamespaces().has(request.payload.ns)) return rpcForbidden(request)
+      let ops
+      try {
+        ops = rewriteMemberModelOps(current, directory(), request.payload.ns, request.payload.ops)
+      } catch (error) {
+        return rpcForbidden(request, error.message)
+      }
+      const response = await originals.settings.mutate.call(this, {
+        ...request,
+        payload: { ...request.payload, ops },
+      }, ...args)
+      return mapRpcValue(response, descriptor => filterMemberNamespace(current, directory(), descriptor))
+    }
+    if (originals.llm.providers) llm.providers = async function (request, ...args) {
+      const current = identity()
+      const response = await originals.llm.providers.call(this, request, ...args)
+      if (isConfigurationAdmin(current)) return response
+      return mapRpcValue(response, value => ({
+        ...value,
+        providers: filterMemberProviders(current, value.providers ?? []),
+      }))
+    }
+    if (originals.llm.models) llm.models = async function (request, ...args) {
+      const current = identity()
+      const response = await originals.llm.models.call(this, request, ...args)
+      return isConfigurationAdmin(current)
+        ? response
+        : mapRpcValue(response, value => filterModelCatalog(current, value))
+    }
+    if (originals.sessions.models) sessions.models = async function (request, ...args) {
+      const current = identity()
+      const response = await originals.sessions.models.call(this, request, ...args)
+      return isConfigurationAdmin(current)
+        ? response
+        : mapRpcValue(response, value => filterModelCatalog(current, value))
+    }
+    for (const [name, original] of Object.entries(originals.agentPresets)) {
+      agentPresets[name] = function (request, ...args) {
+        const current = identity()
+        if (!isConfigurationAdmin(current)) return Promise.resolve(rpcForbidden(request))
+        return original.call(this, request, ...args)
+      }
+    }
+
+    Object.defineProperty(target, '__dshTenantApiGuarded', { value: true, configurable: true })
+    this.ctx.effect(() => {
+      Object.assign(settings, originals.settings)
+      Object.assign(llm, originals.llm)
+      Object.assign(sessions, originals.sessions)
+      if (agentPresets) Object.assign(agentPresets, originals.agentPresets)
+      delete target.__dshTenantApiGuarded
+    }, 'tenant-policy: restore API configuration guards')
   }
 
   patchPrototype(controller, methods) {
@@ -294,10 +482,22 @@ export const name = 'dsh-workos-tenant'
 export const inject = []
 
 export async function apply(ctx, config = {}) {
-  const authConfig = resolveWorkOSConfig(config.workos)
-  if (authConfig.enabled) await ctx.plugin(WorkOSAuthService, authConfig)
+  const managedStore = new ManagedTenantConfigStore(config.management)
+  const managed = managedStore.load()
+  const merged = mergeTenantConfig(config, managed)
+  const preferManaged = Object.keys(managed).length > 0
+  const authConfig = resolveWorkOSConfig(merged.workos, { preferConfig: preferManaged })
+  const storageConfig = resolveTenantStorageConfig(merged.storage, { preferConfig: preferManaged })
+  const effectiveConfig = { ...merged, workos: authConfig, storage: storageConfig }
+  if (authConfig.enabled) await ctx.plugin(WorkOSAuthService, {
+    ...authConfig,
+    management: {
+      store: managedStore,
+      effectiveConfig,
+    },
+  })
 
-  await ctx.plugin(TenantPolicyService, config)
+  await ctx.plugin(TenantPolicyService, effectiveConfig)
   const service = ctx.get('tenantPolicy')
   ctx.on('session/disposed', session => service.forgetSession(session.id))
 }

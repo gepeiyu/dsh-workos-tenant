@@ -146,27 +146,32 @@ export class D1TenantStorage {
   }
 }
 
-export function resolveTenantStorageConfig(config = {}) {
+export function resolveTenantStorageConfig(config = {}, options = {}) {
   const source = config ?? {}
   const d1 = source.d1 ?? {}
-  const mode = process.env.DSH_TENANT_STORAGE ?? source.mode ??
-    (source.d1 || process.env.CLOUDFLARE_D1_DATABASE_ID ? 'd1' : 'local')
+  const env = options.environment ?? process.env
+  const preferConfig = options.preferConfig ?? false
+  const pick = (configured, environment) => preferConfig
+    ? configured ?? environment
+    : environment ?? configured
+  const mode = pick(source.mode, env.DSH_TENANT_STORAGE) ??
+    (source.d1 || env.CLOUDFLARE_D1_DATABASE_ID ? 'd1' : 'local')
   return {
     mode,
-    filePath: source.filePath,
-    encryptionKey: source.encryptionKey,
+    filePath: pick(source.filePath, env.DSH_TENANT_STATE_FILE),
+    encryptionKey: pick(source.encryptionKey, env.DSH_TENANT_ENCRYPTION_KEY),
     d1: {
-      accountId: d1.accountId,
-      databaseId: d1.databaseId,
-      apiToken: d1.apiToken,
-      apiBaseUrl: d1.apiBaseUrl,
-      encryptionKey: d1.encryptionKey,
+      accountId: pick(d1.accountId, env.CLOUDFLARE_ACCOUNT_ID),
+      databaseId: pick(d1.databaseId, env.CLOUDFLARE_D1_DATABASE_ID),
+      apiToken: pick(d1.apiToken, env.CLOUDFLARE_API_TOKEN),
+      apiBaseUrl: pick(d1.apiBaseUrl, env.CLOUDFLARE_API_BASE_URL),
+      encryptionKey: pick(d1.encryptionKey, env.DSH_TENANT_ENCRYPTION_KEY),
     },
   }
 }
 
-export function createTenantStorage(config = {}) {
-  const resolved = resolveTenantStorageConfig(config)
+export function createTenantStorage(config = {}, options = {}) {
+  const resolved = resolveTenantStorageConfig(config, options)
   if (resolved.mode === 'local') return new LocalTenantStorage(resolved)
   if (resolved.mode === 'd1') return new D1TenantStorage({
     ...resolved.d1,

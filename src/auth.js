@@ -6,6 +6,12 @@ import {
 } from 'node:crypto'
 import { Service } from '@deepseek-ai/cordis'
 import { normalizeIdentity } from './policy.js'
+import {
+  normalizeManagedTenantConfig,
+  publicManagedTenantConfig,
+  TenantConfigError,
+} from './config.js'
+import { isConfigurationAdmin } from './model-scope.js'
 
 const DEFAULT_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 const STATE_MAX_AGE_SECONDS = 10 * 60
@@ -84,6 +90,23 @@ function json(res, status, value, headers = {}) {
     ...headers,
   })
   res.end(body)
+}
+
+async function readJson(req, maxBytes = 64 * 1024) {
+  const contentType = headerValue(req.headers, 'content-type')?.split(';', 1)[0]?.trim()
+  if (contentType !== 'application/json') throw new TenantConfigError('Content-Type must be application/json', 415)
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.byteLength
+    if (size > maxBytes) throw new TenantConfigError('Configuration body is too large', 413)
+    chunks.push(chunk)
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    throw new TenantConfigError('Configuration body must be valid JSON')
+  }
 }
 
 function redirect(res, location, headers = {}) {
@@ -240,14 +263,19 @@ export class WorkOSAuthSessionStore {
   }
 }
 
-export function resolveWorkOSConfig(config = {}) {
+export function resolveWorkOSConfig(config = {}, options = {}) {
+  const env = options.environment ?? process.env
+  const preferConfig = options.preferConfig ?? false
+  const pick = (configured, environment) => preferConfig
+    ? configured ?? environment
+    : environment ?? configured
   const resolved = {
     ...config,
-    apiKey: process.env.WORKOS_API_KEY ?? config.apiKey,
-    clientId: process.env.WORKOS_CLIENT_ID ?? config.clientId,
-    organizationId: process.env.WORKOS_ORGANIZATION_ID ?? config.organizationId,
-    redirectUri: process.env.WORKOS_REDIRECT_URI ?? config.redirectUri,
-    cookieSecret: process.env.WORKOS_COOKIE_SECRET ?? config.cookieSecret,
+    apiKey: pick(config.apiKey, env.WORKOS_API_KEY),
+    clientId: pick(config.clientId, env.WORKOS_CLIENT_ID),
+    organizationId: pick(config.organizationId, env.WORKOS_ORGANIZATION_ID),
+    redirectUri: pick(config.redirectUri, env.WORKOS_REDIRECT_URI),
+    cookieSecret: pick(config.cookieSecret, env.WORKOS_COOKIE_SECRET),
   }
   if (resolved.enabled === undefined) {
     resolved.enabled = Boolean(
@@ -268,10 +296,11 @@ export class WorkOSAuthService extends Service {
 
   constructor(ctx, config = {}) {
     super(ctx, 'workosAuth')
-    this.config = resolveWorkOSConfig(config)
+    this.config = resolveWorkOSConfig(config, { preferConfig: Boolean(config.management) })
     this.sessions = new WorkOSAuthSessionStore(this.config)
     this.identityContext = new AsyncLocalStorage()
     this.client = config.client
+    this.management = config.management
   }
 
   async [Service.init]() {
@@ -365,6 +394,11 @@ export class WorkOSAuthService extends Service {
       kind: 'exact',
       path: '/auth/me',
       handler: (req, res) => this.me(req, res),
+    })
+    if (this.management) register({
+      kind: 'exact',
+      path: '/auth/tenant-settings',
+      handler: (req, res) => this.tenantSettings(req, res),
     })
 
     this.ctx.effect(() => {
@@ -498,6 +532,45 @@ export class WorkOSAuthService extends Service {
       user: session.account.user,
       organization: session.account.organization,
     })
+  }
+
+  async tenantSettings(req, res) {
+    const identity = this.identityFromRequest(req)
+    if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    if (!isConfigurationAdmin(identity)) {
+      return json(res, 403, { error: 'ADMIN_REQUIRED' })
+    }
+    if (req.method === 'GET') {
+      return json(res, 200, {
+        config: publicManagedTenantConfig(this.management.effectiveConfig),
+        applies: {
+          policy: 'live',
+          workos: 'restart',
+          storage: 'restart',
+        },
+      })
+    }
+    if (req.method !== 'PUT') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { allow: 'GET, PUT' })
+
+    try {
+      const body = await readJson(req)
+      const next = normalizeManagedTenantConfig(body, this.management.effectiveConfig)
+      this.management.store.save(next)
+      this.management.effectiveConfig = next
+      const tenantPolicy = this.ctx.get('tenantPolicy', false)
+      tenantPolicy?.updateAccessPolicy?.(next)
+      return json(res, 200, {
+        config: publicManagedTenantConfig(next),
+        restartRequired: true,
+      })
+    } catch (error) {
+      const status = error instanceof TenantConfigError ? error.status : 500
+      this.ctx.logger?.warn?.(`Tenant configuration update failed: ${error.message}`)
+      return json(res, status, {
+        error: error.code ?? 'TENANT_CONFIG_UPDATE_FAILED',
+        detail: error.message,
+      })
+    }
   }
 }
 

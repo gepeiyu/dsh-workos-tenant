@@ -100,6 +100,9 @@ sequenceDiagram
 - WorkOS 启用时提供 `ctx.tenantPolicy` 和 `ctx.workosAuth` Cordis 服务；
 - WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
 - 登录后在侧栏底部显示用户名或邮箱及组织名，并提供退出登录菜单；
+- 在 DSH「设置 > 插件 > WorkOS 租户」提供仅管理员可见的租户配置页；
+- 按角色控制设置可视范围：member 只能管理自己的「模型」，owner/admin 才能管理租户配置；
+- Provider 和凭据按用户隔离，未加用户前缀的共享 Provider 可供组织内使用；
 - 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
 - 未认证的首页请求自动跳转到 `/auth/login`；
 - DSH `/api` 和升级请求必须通过 WorkOS 认证；
@@ -132,7 +135,7 @@ npm test
 dsh plugin --profile web add "link:/Users/silverwing/git/dsh-enterprise"
 ```
 
-插件通过环境变量配置，因此 Secret 不会放入 `cordis.patch.yml`。可以从 [`.env.example`](./.env.example) 开始，或者直接导出环境变量：
+首次启动仍需提供 WorkOS 环境变量，以便 AuthKit 建立初始 Session。可以从 [`.env.example`](./.env.example) 开始，或者直接导出环境变量：
 
 ```bash
 cp .env.example .env
@@ -148,6 +151,12 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 `WORKOS_ORGANIZATION_ID` 会把这个 DSH 实例绑定到一个 WorkOS 组织。`WORKOS_COOKIE_SECRET` 用于签名本地 HttpOnly Session Cookie，不会发送给 WorkOS 或浏览器。
 
+登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理连接、存储和访问策略。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。访问策略保存后立即生效；WorkOS 连接和存储变更需要重启 DSH。首次保存并成功重启前，请保留启动所需的环境变量。
+
+`adminRoles` 控制跨用户可视范围，默认值为 `owner, admin`。如果管理员只需要管理配置而不能查看其他用户的 Session 或 Workspace，可将它设置为空数组（表单中留空）。`adminCanManageKeys` 独立控制管理员是否可以管理其他用户的模型凭据。
+
+member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。
+
 ## 存储配置
 
 没有存储配置时，插件会把租户状态保存到 `$DSH_HOME/tenant-state.json`。可以通过 `DSH_TENANT_STATE_FILE` 指定自定义路径。
@@ -162,7 +171,7 @@ export CLOUDFLARE_API_TOKEN="..."
 export DSH_TENANT_ENCRYPTION_KEY="至少32个随机字符"
 ```
 
-插件设置中只放非秘密的存储模式和本地路径。Account ID、Database ID、API Token 和加密密钥都放在环境变量中。D1 API Token 只留在服务端，状态数据发送到 Cloudflare 之前会先加密。
+D1 API Token 只留在服务端，状态数据发送到 Cloudflare 之前会先加密。owner/admin 可以在租户配置页填写这些值；配置接口不会返回 Secret。
 
 ## 本地 DSH 测试
 

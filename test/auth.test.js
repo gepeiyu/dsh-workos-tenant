@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { Readable } from 'node:stream'
 import {
   accountFromAuthentication,
   WorkOSAuthService,
@@ -199,4 +200,86 @@ test('account profile falls back to email parts and organization id', () => {
       name: 'org_acme',
     },
   })
+})
+
+test('tenant settings are admin-only and redact secrets', async () => {
+  const sessions = new WorkOSAuthSessionStore({
+    cookieSecret: 'e'.repeat(32),
+    secureCookies: false,
+  })
+  const admin = sessions.createSession({ organizationId: 'org_acme', userId: 'user_admin', role: 'admin' })
+  const member = sessions.createSession({ organizationId: 'org_acme', userId: 'user_member', role: 'member' })
+  const effectiveConfig = {
+    adminRoles: ['owner', 'admin'],
+    adminCanManageKeys: false,
+    workos: {
+      clientId: 'client_acme',
+      organizationId: 'org_acme',
+      redirectUri: 'http://127.0.0.1:3080/auth/callback',
+      sessionMaxAgeSeconds: 604800,
+      secureCookies: false,
+      apiKey: 'sk_secret',
+      cookieSecret: 'c'.repeat(32),
+    },
+    storage: {
+      mode: 'local',
+      filePath: '/tmp/tenant-state.json',
+      encryptionKey: 'f'.repeat(32),
+      d1: {},
+    },
+  }
+  let saved
+  let policyUpdate
+  const service = Object.create(WorkOSAuthService.prototype)
+  service.sessions = sessions
+  service.management = {
+    effectiveConfig,
+    store: { save: config => { saved = config } },
+  }
+  service.ctx = {
+    get: () => ({ updateAccessPolicy: config => { policyUpdate = config } }),
+    logger: { warn() {} },
+  }
+
+  const call = async (cookie, method = 'GET', body) => {
+    let response
+    const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
+    request.method = method
+    request.headers = {
+      cookie: cookie.split(';', 1)[0],
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    }
+    await service.tenantSettings(request, {
+      writeHead(status, headers) { response = { status, headers } },
+      end(value) { response.body = value ? JSON.parse(value) : undefined },
+    })
+    return response
+  }
+
+  const memberResponse = await call(member.setCookie)
+  assert.equal(memberResponse.status, 403)
+  const getResponse = await call(admin.setCookie)
+  assert.equal(getResponse.status, 200)
+  assert.deepEqual(getResponse.body.config.policy, {
+    adminRoles: ['owner', 'admin'],
+    adminCanManageKeys: false,
+  })
+  assert.equal(getResponse.body.config.workos.apiKeyConfigured, true)
+  assert.equal('apiKey' in getResponse.body.config.workos, false)
+
+  const putResponse = await call(admin.setCookie, 'PUT', {
+    policy: { adminRoles: [], adminCanManageKeys: false },
+    workos: {
+      clientId: 'client_acme',
+      organizationId: 'org_acme',
+      redirectUri: 'http://127.0.0.1:3080/auth/callback',
+      sessionMaxAgeSeconds: 604800,
+      secureCookies: false,
+    },
+    storage: { mode: 'local', filePath: '/tmp/tenant-state.json', d1: {} },
+  })
+  assert.equal(putResponse.status, 200)
+  assert.deepEqual(saved.adminRoles, [])
+  assert.deepEqual(policyUpdate.adminRoles, [])
+  assert.equal(saved.workos.apiKey, 'sk_secret')
 })

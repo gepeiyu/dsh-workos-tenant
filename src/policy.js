@@ -95,6 +95,13 @@ export class TenantPolicy {
     return this.adminRoles.has(identity.role)
   }
 
+  configure(options = {}) {
+    if (Array.isArray(options.adminRoles)) this.adminRoles = new Set(options.adminRoles)
+    if (typeof options.adminCanManageKeys === 'boolean') {
+      this.adminCanManageKeys = options.adminCanManageKeys
+    }
+  }
+
   claimSession(identity, sessionId) {
     identity = normalizeIdentity(identity)
     const id = requiredString(sessionId, 'sessionId')

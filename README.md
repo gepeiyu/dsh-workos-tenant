@@ -100,6 +100,9 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Cordis services exposed as `ctx.tenantPolicy` and `ctx.workosAuth` when WorkOS is enabled.
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
 - Signed-in user or email and organization details in the sidebar, with a sign-out menu.
+- Admin-only WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant.
+- Role-based settings visibility: members can manage only their own Models page; owner/admin roles manage tenant settings.
+- Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
 - Automatic redirect of unauthenticated index requests to `/auth/login`.
 - WorkOS authentication required for DSH `/api` and upgrade requests.
@@ -132,7 +135,7 @@ From a DSH profile directory:
 dsh plugin --profile web add "link:/Users/silverwing/git/dsh-enterprise"
 ```
 
-The plugin is configured through environment variables so secrets stay outside `cordis.patch.yml`. Start from [`.env.example`](./.env.example) or export them directly:
+The first boot must have the WorkOS environment variables available so AuthKit can create the initial session. Start from [`.env.example`](./.env.example) or export them directly:
 
 ```bash
 cp .env.example .env
@@ -148,6 +151,12 @@ export WORKOS_COOKIE_SECRET="at-least-32-random-characters"
 
 `WORKOS_ORGANIZATION_ID` binds this DSH instance to exactly one WorkOS organization. `WORKOS_COOKIE_SECRET` signs the local HttpOnly session cookie. It is not sent to WorkOS or the browser.
 
+After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage the connection, storage, and access policy. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Access-policy changes apply immediately; WorkOS connection and storage changes apply after restarting DSH. Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
+
+The `adminRoles` field controls cross-user visibility. The default is `owner, admin`. Set it to an empty list (`[]`, represented by an empty field in the form) when administrators should manage configuration but must not inspect another user's sessions or workspace. `adminCanManageKeys` separately controls whether those roles may manage another user's model credentials.
+
+Members see only the Models settings page. Providers and credentials they add are stored under a deterministic user namespace and are hidden from other users; the server also rejects cross-user reads and writes. Built-in singleton provider sections keep their shared catalog, while a member's API key remains private to that member.
+
 ## Storage configuration
 
 Without storage settings, the plugin stores tenant state in a local JSON file under `$DSH_HOME/tenant-state.json`. You can set a custom path with `DSH_TENANT_STATE_FILE`.
@@ -162,7 +171,7 @@ export CLOUDFLARE_API_TOKEN="..."
 export DSH_TENANT_ENCRYPTION_KEY="at-least-32-random-characters"
 ```
 
-Only the non-secret storage mode and local path belong in plugin settings. Account IDs, database IDs, API tokens, and encryption keys stay in environment variables. The D1 API token stays server-side, and D1 state is encrypted before it is sent to Cloudflare.
+The D1 API token stays server-side, and D1 state is encrypted before it is sent to Cloudflare. These values can be entered by an owner/admin on the tenant settings page; they are never returned in the configuration response.
 
 ## Local DSH test
 
