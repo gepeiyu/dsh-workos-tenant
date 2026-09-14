@@ -185,8 +185,12 @@ export class WorkOSAuthSessionStore {
   clearCookies() {
     return [
       clearCookie(this.cookieName, this.secureCookies),
-      clearCookie(this.stateCookieName, this.secureCookies),
+      this.clearStateCookie(),
     ]
+  }
+
+  clearStateCookie() {
+    return clearCookie(this.stateCookieName, this.secureCookies)
   }
 }
 
@@ -401,7 +405,7 @@ export class WorkOSAuthService extends Service {
     const origin = new URL(this.config.redirectUri).origin
     const dshUrl = this.ctx.connection.authenticatedUrl(`${origin}/`)
     return redirect(res, dshUrl, {
-      'set-cookie': [session.setCookie, ...this.sessions.clearCookies()],
+      'set-cookie': [session.setCookie, this.sessions.clearStateCookie()],
     })
   }
 

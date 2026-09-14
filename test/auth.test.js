@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  WorkOSAuthService,
   WorkOSAuthSessionStore,
   identityFromAuthentication,
   resolveWorkOSConfig,
@@ -54,6 +55,58 @@ test('WorkOS authentication response is reduced to tenant identity', () => {
     user: { id: 'user_alice' },
     organizationId: 'org_acme',
     accessToken: 'not-stored',
+  }), {
+    organizationId: 'org_acme',
+    userId: 'user_alice',
+    role: 'member',
+  })
+})
+
+test('successful callback preserves the new session cookie', async () => {
+  const sessions = new WorkOSAuthSessionStore({
+    cookieSecret: 'd'.repeat(32),
+    secureCookies: false,
+  })
+  const { state, setCookie } = sessions.createState()
+  const service = Object.create(WorkOSAuthService.prototype)
+  service.sessions = sessions
+  service.config = {
+    organizationId: 'org_acme',
+    redirectUri: 'http://127.0.0.1:3080/auth/callback',
+  }
+  service.client = {
+    userManagement: {
+      authenticateWithCode: async () => ({
+        user: { id: 'user_alice' },
+        organizationId: 'org_acme',
+      }),
+    },
+  }
+  service.ctx = {
+    connection: {
+      authenticatedUrl: url => url,
+    },
+  }
+
+  let response
+  const res = {
+    writeHead(status, headers) {
+      response = { status, headers }
+    },
+    end() {},
+  }
+  await service.callback({
+    url: `/auth/callback?code=code_test&state=${state}`,
+    headers: { cookie: setCookie.split(';', 1)[0] },
+  }, res)
+
+  assert.equal(response.status, 302)
+  assert.equal(response.headers.location, 'http://127.0.0.1:3080/')
+  assert.equal(response.headers['set-cookie'].length, 2)
+  assert.match(response.headers['set-cookie'][0], /^dsh-workos-session=/)
+  assert.match(response.headers['set-cookie'][1], /^dsh-workos-state=.*Max-Age=0/)
+  assert.deepEqual(sessions.identityFromHeaders({
+    cookie: response.headers['set-cookie'][0].split(';', 1)[0],
   }), {
     organizationId: 'org_acme',
     userId: 'user_alice',
