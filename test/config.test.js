@@ -69,3 +69,11 @@ test('network access defaults to loopback and can be enabled', () => {
   assert.equal(network.network.allowNetworkAccess, true)
   assert.equal(publicManagedTenantConfig(network).network.allowNetworkAccess, true)
 })
+
+test('workspace root is public, optional, and must be absolute', () => {
+  const configured = normalizeManagedTenantConfig({ ...complete, workspace: { root: '/srv/dsh/workspaces' } })
+  assert.equal(configured.workspace.root, '/srv/dsh/workspaces')
+  assert.equal(publicManagedTenantConfig(configured).workspace.root, '/srv/dsh/workspaces')
+  assert.throws(() => normalizeManagedTenantConfig({ ...complete, workspace: { root: 'relative/path' } }), /absolute path/)
+  assert.equal(normalizeManagedTenantConfig(complete).workspace.root, undefined)
+})

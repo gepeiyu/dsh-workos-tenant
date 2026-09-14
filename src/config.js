@@ -9,7 +9,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 
 const CONFIG_VERSION = 1
 
@@ -97,8 +97,9 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
   const workos = input.workos
   const storage = input.storage
   const network = input.network ?? {}
-  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage) || !isRecord(network)) {
-    throw new TenantConfigError('policy, workos, and storage sections are required')
+  const workspace = input.workspace ?? {}
+  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage) || !isRecord(network) || !isRecord(workspace)) {
+    throw new TenantConfigError('policy, workos, storage, network, and workspace sections must be objects')
   }
 
   const mode = requiredString(storage.mode, 'storage mode', { max: 16 })
@@ -113,6 +114,11 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
       allowNetworkAccess: network.allowNetworkAccess === undefined
         ? Boolean(fallback.network?.allowNetworkAccess)
         : requiredBoolean(network.allowNetworkAccess, 'allowNetworkAccess'),
+    },
+    workspace: {
+      root: workspace.root === undefined
+        ? optionalString(fallback.workspace?.root, 'workspace root')
+        : optionalString(workspace.root, 'workspace root'),
     },
     workos: {
       clientId: requiredString(workos.clientId, 'WorkOS client ID'),
@@ -155,6 +161,9 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
   if (!normalized.workos.apiKey || !normalized.workos.cookieSecret) {
     throw new TenantConfigError('WorkOS API key and cookie secret must be configured')
   }
+  if (normalized.workspace.root && !isAbsolute(normalized.workspace.root)) {
+    throw new TenantConfigError('workspace root must be an absolute path')
+  }
   if (mode === 'd1') {
     if (!normalized.storage.d1.accountId || !normalized.storage.d1.databaseId ||
         !normalized.storage.d1.apiToken || !normalized.storage.encryptionKey) {
@@ -174,6 +183,9 @@ export function publicManagedTenantConfig(config) {
     },
     network: {
       allowNetworkAccess: Boolean(config.network?.allowNetworkAccess),
+    },
+    workspace: {
+      root: config.workspace?.root ?? '',
     },
     workos: {
       clientId: config.workos?.clientId ?? '',

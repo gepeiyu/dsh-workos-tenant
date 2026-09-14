@@ -1,9 +1,11 @@
 import { Service } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import { resolve } from 'node:path'
 import { SessionKeyRouter, TenantError, TenantPolicy } from './policy.js'
 import { WorkOSAuthService, resolveWorkOSConfig } from './auth.js'
 import { createTenantStorage, resolveTenantStorageConfig } from './storage.js'
 import { ManagedTenantConfigStore, mergeTenantConfig } from './config.js'
+import { assertWorkspacePath, userWorkspaceRoot } from './workspace-scope.js'
 import {
   filterMemberNamespace,
   filterMemberProviders,
@@ -23,6 +25,9 @@ export class TenantPolicyService extends Service {
     adminCanManageKeys: Schema.boolean().default(false),
     network: Schema.object({
       allowNetworkAccess: Schema.boolean().default(false),
+    }).default({}),
+    workspace: Schema.object({
+      root: Schema.string().default('').description('Base directory for organization/user Workspace roots'),
     }).default({}),
     workos: Schema.any().hidden(),
     storage: Schema.object({
@@ -55,6 +60,7 @@ export class TenantPolicyService extends Service {
   updateAccessPolicy(config) {
     this.config = { ...this.config, ...config }
     this.policy.configure(config)
+    if (this.config?.workspace?.root) this.patchDirectoryPicker(this.ctx.get('directoryPickerController', false))
   }
 
   async persistState(state) {
@@ -134,12 +140,60 @@ export class TenantPolicyService extends Service {
     return identity
   }
 
+  userWorkspaceRoot(identity, ensure = false) {
+    return userWorkspaceRoot(this.config, identity, ensure)
+  }
+
+  assertWorkspacePath(identity, path, options) {
+    if (!this.config?.workspace?.root) return path
+    if (typeof path !== 'string' || !path) throw new TenantError('WORKSPACE_PATH_REQUIRED', 'A Workspace path is required', 400)
+    return assertWorkspacePath(this.config, identity, path, options)
+  }
+
+  assertWorkspaceLocation(identity, workspaceId) {
+    this.assertWorkspaceAccess(identity, workspaceId)
+    const registry = this.ctx.get('workspaceRegistry', false)
+    const workspace = registry?.get?.(workspaceId)
+    if (workspace?.path) this.assertWorkspacePath(identity, workspace.path)
+    return workspace
+  }
+
+  canAccessWorkspaceLocation(identity, workspaceId, path) {
+    try {
+      if (!this.canAccessWorkspace(identity, workspaceId)) return false
+      if (!this.config?.workspace?.root) return true
+      const registry = this.ctx.get('workspaceRegistry', false)
+      const workspacePath = path ?? registry?.get?.(workspaceId)?.path
+      this.assertWorkspacePath(identity, workspacePath)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  assertSessionLocation(identity, sessionId) {
+    this.assertSessionAccess(identity, sessionId)
+    if (!this.config?.workspace?.root) return
+    return (async () => {
+      const live = this.ctx.get('sessions', false)?.get(sessionId)?.header
+      const stored = live ? undefined : await this.ctx.get('sessionPersistence').stat(sessionId)
+      const header = live ?? stored?.header
+      if (!header?.cwd) throw new TenantError('WORKSPACE_PATH_REQUIRED', 'Session has no Workspace path', 403)
+      this.assertWorkspacePath(identity, header.cwd)
+    })()
+  }
+
+  async canAccessSessionLocation(identity, sessionId) {
+    try { await this.assertSessionLocation(identity, sessionId); return true } catch { return false }
+  }
+
   installRuntimeGuards() {
     if (this.runtimeGuardsInstalled) return
     this.runtimeGuardsInstalled = true
     this.patchSessionController(this.ctx.get('sessionController', false))
     this.patchWorkspaceController(this.ctx.get('workspaceController', false))
     this.patchWorkspaceFiles(this.ctx.get('workspaceFiles', false))
+    this.patchDirectoryPicker(this.ctx.get('directoryPickerController', false))
     this.patchGateway(this.ctx.get('typertGateway', false))
     this.patchApiProxy(this.ctx.get('apiProxy', false))
     this.patchCredentialProvider(this.ctx.get('credentials', false))
@@ -148,6 +202,7 @@ export class TenantPolicyService extends Service {
       if (name === 'sessionController') this.patchSessionController(this.ctx.get(name, false))
       if (name === 'workspaceController') this.patchWorkspaceController(this.ctx.get(name, false))
       if (name === 'workspaceFiles') this.patchWorkspaceFiles(this.ctx.get(name, false))
+      if (name === 'directoryPickerController') this.patchDirectoryPicker(this.ctx.get(name, false))
       if (name === 'typertGateway') this.patchGateway(this.ctx.get(name, false))
       if (name === 'apiProxy') this.patchApiProxy(this.ctx.get(name, false))
       if (name === 'credentials') this.patchCredentialProvider(this.ctx.get(name, false))
@@ -193,10 +248,14 @@ export class TenantPolicyService extends Service {
       return (async function* () {
         for await (const frame of stream) {
           if (frame.type === 'waterfall') {
-            if (tenant.canAccessSession(identity, frame.agentId)) yield frame
+            if (tenant.config?.workspace?.root
+              ? await tenant.canAccessSessionLocation(identity, frame.agentId)
+              : tenant.canAccessSession(identity, frame.agentId)) yield frame
           } else if (frame.type === 'emit' && frame.event.startsWith('api-session/')) {
             const id = frame.event === 'api-session/added' ? frame.args?.[0]?.sessionId : frame.args?.[0]
-            if (tenant.canAccessSession(identity, id)) yield frame
+            if (tenant.config?.workspace?.root
+              ? await tenant.canAccessSessionLocation(identity, id)
+              : tenant.canAccessSession(identity, id)) yield frame
           } else {
             yield frame
           }
@@ -214,11 +273,48 @@ export class TenantPolicyService extends Service {
     const tenant = this
     const wrappers = Object.fromEntries(['list', 'read', 'readAll', 'readBytes', 'readRelated', 'stat', 'changes'].map(name => [name,
       original => function (scope, ...args) {
-        tenant.assertSessionAccess(tenant.currentIdentity(), scope?.sessionId)
+        const identity = tenant.currentIdentity()
+        tenant.assertSessionAccess(identity, scope?.sessionId)
+        tenant.assertWorkspacePath(identity, scope?.workspaceRoot)
+        if (typeof args[0] === 'string') tenant.assertWorkspacePath(identity, args[0], { relativeTo: scope.workspaceRoot })
         return original.call(this, scope, ...args)
       },
     ]))
     this.patchPrototype(files, wrappers)
+  }
+
+  patchDirectoryPicker(controller) {
+    if (!this.config?.workspace?.root) return
+    const tenant = this
+    this.patchPrototype(controller, {
+      list: original => function (path, ...args) {
+        if (!tenant.config?.workspace?.root) return original.call(this, path, ...args)
+        const identity = tenant.currentIdentity()
+        const root = tenant.userWorkspaceRoot(identity, true)
+        const target = path === undefined
+          ? root
+          : tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+        return Promise.resolve(original.call(this, target, ...args)).then(value => {
+          const allowed = row => {
+            try { tenant.assertWorkspacePath(identity, row.path); return true } catch { return false }
+          }
+          return { ...value, home: root, crumbs: value.crumbs.filter(allowed), entries: value.entries.filter(allowed) }
+        })
+      },
+      createDirectory: original => function (path, name, ...args) {
+        if (!tenant.config?.workspace?.root) return original.call(this, path, name, ...args)
+        const identity = tenant.currentIdentity()
+        const parent = tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+        tenant.assertWorkspacePath(identity, resolve(parent, name))
+        return original.call(this, parent, name, ...args)
+      },
+      pick: original => async function (...args) {
+        if (!tenant.config?.workspace?.root) return original.call(this, ...args)
+        const identity = tenant.currentIdentity()
+        const path = await original.call(this, ...args)
+        return path === null ? null : tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+      },
+    })
   }
 
   patchAdminService(service, methods) {
@@ -417,10 +513,14 @@ export class TenantPolicyService extends Service {
           ? [address.parentSessionId, address.childSessionId]
           : [address?.sessionId]
         if (!ids[0]) throw new TenantError('SESSION_NOT_REGISTERED', 'A session address is required', 400)
-        return ids.map(id => this.policy.assertSessionAccess(identity, id))
+        for (const id of ids) this.policy.assertSessionAccess(identity, id)
+        return ids
       }
       filter(identity, value) {
-        return { ...value, items: (value?.items ?? []).filter(item => this.policy.canAccessSession(identity, item.sessionId)) }
+        return { ...value, items: (value?.items ?? []).filter(item => {
+          if (!this.policy.canAccessSession(identity, item.sessionId)) return false
+          try { service.assertWorkspacePath(identity, item.cwd); return true } catch { return false }
+        }) }
       }
       claim(identity, request, value) {
         if (request?.workspaceId) this.policy.assertWorkspaceAccess(identity, request.workspaceId)
@@ -432,8 +532,13 @@ export class TenantPolicyService extends Service {
     const requireIdentity = () => service.currentIdentity()
     const sessionRequest = original => function (request, ...args) {
       const current = requireIdentity()
-      guard.authorize(current, request)
-      return original.call(this, request, ...args)
+      if (!service.config?.workspace?.root) {
+        guard.authorize(current, request)
+        return original.call(this, request, ...args)
+      }
+      const controller = this
+      return Promise.resolve(service.assertSessionLocation(current, request?.sessionId)).then(() =>
+        original.call(controller, request, ...args))
     }
     this.patchPrototype(controller, {
       list: original => function (request, ...args) {
@@ -448,40 +553,52 @@ export class TenantPolicyService extends Service {
       },
       create: original => function (request, ...args) {
         const identity = requireIdentity()
-        if (request?.workspaceId) service.assertWorkspaceAccess(identity, request.workspaceId)
+        if (request?.workspaceId) service.assertWorkspaceLocation(identity, request.workspaceId)
+        const normalizedCwd = request?.cwd
+          ? service.assertWorkspacePath(identity, request.cwd, { ensureRoot: true })
+          : request?.workspaceId ? undefined : service.userWorkspaceRoot(identity, true)
         const controller = this
         return (async () => {
           if (request?.sessionId) {
             const stored = await service.ctx.get('sessionPersistence').list()
             if (stored.some(row => (row.header ?? row).id === request.sessionId)) {
-              service.assertSessionAccess(identity, request.sessionId)
+              await service.assertSessionLocation(identity, request.sessionId)
             }
           }
-          return guard.claim(identity, request, await original.call(controller, request, ...args))
+          const normalized = normalizedCwd === undefined ? request : { ...request, cwd: normalizedCwd }
+          return guard.claim(identity, normalized, await original.call(controller, normalized, ...args))
         })()
       },
       selectModel: sessionRequest,
       rename: sessionRequest,
       fork: original => function (request, ...args) {
         const identity = requireIdentity()
-        guard.authorize(identity, request)
-        return Promise.resolve(original.call(this, request, ...args)).then(value => {
-          service.claimSession(identity, value?.sessionId)
-          return value
-        })
+        if (!service.config?.workspace?.root) guard.authorize(identity, request)
+        const controller = this
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(controller, request, ...args)).then(value => {
+            service.claimSession(identity, value?.sessionId)
+            return value
+          })
       },
       prompt: sessionRequest,
       attachment: sessionRequest,
       updateQueue: sessionRequest,
       cancel: sessionRequest,
-      page: original => function (request, ...args) {
-        guard.authorizeAddress(requireIdentity(), request)
+      page: original => async function (request, ...args) {
+        const identity = requireIdentity()
+        const ids = guard.authorizeAddress(identity, request)
+        if (service.config?.workspace?.root) for (const id of ids) await service.assertSessionLocation(identity, id)
         return original.call(this, request, ...args)
       },
       follow: original => function (request, ...args) {
         const current = requireIdentity()
-        guard.authorizeAddress(current, request)
-        return original.call(this, request, ...args)
+        const records = guard.authorizeAddress(current, request)
+        const controller = this
+        return (async function* () {
+          for (const id of records) await service.assertSessionLocation(current, id)
+          yield* original.call(controller, request, ...args)
+        })()
       },
       control: original => function (...args) {
         const current = requireIdentity()
@@ -489,17 +606,23 @@ export class TenantPolicyService extends Service {
         return (async function* () {
           for await (const frame of stream) {
             if (frame?.type === 'baseline') {
-              const allowed = key => service.canAccessSession(current, key)
-              const filterMap = value => Object.fromEntries(
-                Object.entries(value ?? {}).filter(([key]) => allowed(key)),
-              )
+              const allowed = new Set()
+              for (const key of new Set(Object.keys(frame.value?.queues ?? {}).concat(
+                Object.keys(frame.value?.jobs ?? {}), Object.keys(frame.value?.projections ?? {})))) {
+                if (service.config?.workspace?.root
+                  ? await service.canAccessSessionLocation(current, key)
+                  : service.canAccessSession(current, key)) allowed.add(key)
+              }
+              const filterMap = value => Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => allowed.has(key)))
               yield { ...frame, value: {
                 ...frame.value,
                 queues: filterMap(frame.value?.queues),
                 jobs: filterMap(frame.value?.jobs),
                 projections: filterMap(frame.value?.projections),
               } }
-            } else if (frame?.sessionId === undefined || service.canAccessSession(current, frame.sessionId)) {
+            } else if (frame?.sessionId === undefined || (service.config?.workspace?.root
+              ? await service.canAccessSessionLocation(current, frame.sessionId)
+              : service.canAccessSession(current, frame.sessionId))) {
               yield frame
             }
           }
@@ -513,13 +636,14 @@ export class TenantPolicyService extends Service {
     const service = this
     const requireIdentity = () => service.currentIdentity()
     const workspaceIdRequest = original => function (request, ...args) {
-      service.assertWorkspaceAccess(requireIdentity(), request?.workspaceId)
+      service.assertWorkspaceLocation(requireIdentity(), request?.workspaceId)
       return original.call(this, request, ...args)
     }
     this.patchPrototype(controller, {
       create: original => function (request, ...args) {
         const identity = requireIdentity()
-        return Promise.resolve(original.call(this, request, ...args)).then(value => {
+        const path = service.assertWorkspacePath(identity, request?.path, { ensureRoot: true })
+        return Promise.resolve(original.call(this, { ...request, path }, ...args)).then(value => {
           if (value?.created === false) service.assertWorkspaceAccess(identity, value?.workspace?.workspaceId)
           service.claimWorkspace(identity, value?.workspace?.workspaceId)
           return value
@@ -530,14 +654,14 @@ export class TenantPolicyService extends Service {
       insertBefore: workspaceIdRequest,
       insertSessionBefore: original => function (request, ...args) {
         const identity = requireIdentity()
-        service.assertWorkspaceAccess(identity, request?.workspaceId)
-        service.assertSessionAccess(identity, request?.sessionId)
-        return original.call(this, request, ...args)
+        service.assertWorkspaceLocation(identity, request?.workspaceId)
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(this, request, ...args))
       },
       archiveSession: original => function (request, ...args) {
         const identity = requireIdentity()
-        service.assertSessionAccess(identity, request?.sessionId)
-        return original.call(this, request, ...args)
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(this, request, ...args))
       },
       follow: original => function (...args) {
         const current = requireIdentity()
@@ -546,22 +670,49 @@ export class TenantPolicyService extends Service {
           for await (const frame of stream) {
             if (frame?.type === 'baseline') {
               const value = frame.value
+              const items = []
+              for (const item of value.items ?? []) {
+                if (!service.canAccessWorkspaceLocation(current, item.workspaceId, item.path)) continue
+                const sessionIds = []
+                for (const id of item.sessionIds ?? []) {
+                  if (service.config?.workspace?.root
+                    ? await service.canAccessSessionLocation(current, id)
+                    : service.canAccessSession(current, id)) sessionIds.push(id)
+                }
+                items.push({ ...item, sessionIds })
+              }
+              const archivedSessionIds = []
+              for (const id of value.archivedSessionIds ?? []) {
+                if (service.config?.workspace?.root
+                  ? await service.canAccessSessionLocation(current, id)
+                  : service.canAccessSession(current, id)) archivedSessionIds.push(id)
+              }
               yield { ...frame, value: {
                 ...value,
-                items: (value.items ?? []).filter(item => service.canAccessWorkspace(current, item.workspaceId))
-                  .map(item => ({ ...item, sessionIds: (item.sessionIds ?? []).filter(id => service.canAccessSession(current, id)) })),
-                archivedSessionIds: (value.archivedSessionIds ?? []).filter(id => service.canAccessSession(current, id)),
+                items,
+                archivedSessionIds,
               } }
             } else if (frame?.type === 'upsert') {
-              if (service.canAccessWorkspace(current, frame.workspace?.workspaceId)) yield { ...frame, workspace: {
-                ...frame.workspace, sessionIds: (frame.workspace.sessionIds ?? []).filter(id => service.canAccessSession(current, id)),
-              } }
+              if (!service.canAccessWorkspaceLocation(current, frame.workspace?.workspaceId, frame.workspace?.path)) continue
+              const sessionIds = []
+              for (const id of frame.workspace.sessionIds ?? []) {
+                if (service.config?.workspace?.root
+                  ? await service.canAccessSessionLocation(current, id)
+                  : service.canAccessSession(current, id)) sessionIds.push(id)
+              }
+              yield { ...frame, workspace: { ...frame.workspace, sessionIds } }
             } else if (frame?.type === 'remove') {
               if (service.canAccessWorkspace(current, frame.workspaceId)) yield frame
             } else if (frame?.type === 'order') {
-              yield { ...frame, workspaceIds: frame.workspaceIds.filter(id => service.canAccessWorkspace(current, id)) }
+              yield { ...frame, workspaceIds: frame.workspaceIds.filter(id => service.canAccessWorkspaceLocation(current, id)) }
             } else if (frame?.type === 'archived') {
-              yield { ...frame, archivedSessionIds: frame.archivedSessionIds.filter(id => service.canAccessSession(current, id)) }
+              const archivedSessionIds = []
+              for (const id of frame.archivedSessionIds) {
+                if (service.config?.workspace?.root
+                  ? await service.canAccessSessionLocation(current, id)
+                  : service.canAccessSession(current, id)) archivedSessionIds.push(id)
+              }
+              yield { ...frame, archivedSessionIds }
             }
           }
         })()

@@ -37,4 +37,5 @@ export {
   resolveWorkOSConfig,
 } from './auth.js'
 export { TenantPolicyService, name, inject, apply } from './service.js'
+export { assertWorkspacePath, userWorkspaceRoot } from './workspace-scope.js'
 export { apply as default } from './service.js'

@@ -1,13 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { TenantPolicy } from '../src/policy.js'
 import { TenantPolicyService } from '../src/service.js'
 
-function testService(identity) {
+function testService(identity, options = {}) {
   const service = Object.create(TenantPolicyService.prototype)
   service.policy = new TenantPolicy()
+  service.config = options.config ?? {}
   service.auth = { currentIdentity: () => identity }
-  service.ctx = { effect: setup => setup(), get: () => ({ list: async () => [{ header: { id: 'legacy-session' } }, { header: { id: 'session-bob' } }] }) }
+  service.ctx = { effect: setup => setup(), get: name => options.services?.[name] ?? ({ list: async () => [{ header: { id: 'legacy-session' } }, { header: { id: 'session-bob' } }] }) }
   return service
 }
 
@@ -37,6 +41,74 @@ test('automatic Session controller guard claims and filters resources', async ()
   await assert.rejects(controller.create({sessionId: 'session-bob'}), /another user/)
   await assert.rejects(controller.create({sessionId: 'legacy-session'}), /no tenant owner/)
   await controller.create({sessionId: 'new-session'})
+})
+
+test('configured workspace root guards workspace, session, picker, and file paths', async () => {
+  const alice = { organizationId: 'org-1', userId: 'alice', role: 'member' }
+  const base = mkdtempSync(join(tmpdir(), 'dsh-tenant-scoped-'))
+  const root = join(base, 'org-1', 'alice')
+  const project = join(root, 'project')
+  const outside = mkdtempSync(join(tmpdir(), 'dsh-tenant-foreign-'))
+  mkdirSync(project, { recursive: true })
+  const headers = new Map([
+    ['inside-session', { id: 'inside-session', cwd: project }],
+    ['outside-session', { id: 'outside-session', cwd: outside }],
+  ])
+  const workspaces = new Map([
+    ['inside-workspace', { id: 'inside-workspace', path: project }],
+    ['outside-workspace', { id: 'outside-workspace', path: outside }],
+  ])
+  const service = testService(alice, {
+    config: { workspace: { root: base } },
+    services: {
+      sessions: { get: id => ({ header: headers.get(id) }) },
+      sessionPersistence: { stat: async id => ({ header: headers.get(id) }), list: async () => [] },
+      workspaceRegistry: { get: id => workspaces.get(id) },
+    },
+  })
+  service.policy.claimSession(alice, 'inside-session')
+  service.policy.claimSession(alice, 'outside-session')
+  service.policy.claimWorkspace(alice, 'inside-workspace')
+  service.policy.claimWorkspace(alice, 'outside-workspace')
+
+  class SessionController {
+    list() { return { items: [...headers.values()].map(header => ({sessionId:header.id,cwd:header.cwd})) } }
+    create(request) { return { sessionId: request.sessionId ?? 'created-session' } }
+    prompt(request) { return request.sessionId }
+  }
+  const sessions = new SessionController()
+  service.patchSessionController(sessions)
+  assert.deepEqual((await sessions.list({})).items.map(row => row.sessionId), ['inside-session'])
+  await assert.rejects(sessions.prompt({sessionId:'outside-session'}), /outside/)
+  assert.throws(() => sessions.create({sessionId:'new-outside',cwd:outside}), /outside/)
+  await sessions.create({sessionId:'new-inside',cwd:join(root,'new-project')})
+
+  class WorkspaceController { create(request) { return {workspace:{workspaceId:'created-workspace',path:request.path},created:true} } }
+  const workspaceController = new WorkspaceController()
+  service.patchWorkspaceController(workspaceController)
+  assert.throws(() => workspaceController.create({path:outside}), /outside/)
+  await workspaceController.create({path:join(root,'created')})
+
+  class DirectoryPickerController {
+    list(path) { return {path,home:base,crumbs:[{path:base},{path:root}],entries:[{path:project},{path:outside}]} }
+    createDirectory(path, name) { return join(path, name) }
+    pick() { return Promise.resolve(outside) }
+  }
+  const picker = new DirectoryPickerController()
+  service.patchDirectoryPicker(picker)
+  const listing = await picker.list()
+  assert.equal(listing.path, root)
+  assert.equal(listing.home, root)
+  assert.deepEqual(listing.crumbs,[{path:root}])
+  assert.deepEqual(listing.entries,[{path:project}])
+  assert.equal(await picker.createDirectory(root,'child'), join(root,'child'))
+  await assert.rejects(picker.pick(), /outside/)
+
+  class WorkspaceFiles { read(scope, path) { return join(scope.workspaceRoot,path) } }
+  const files = new WorkspaceFiles()
+  service.patchWorkspaceFiles(files)
+  assert.equal(files.read({sessionId:'inside-session',workspaceRoot:project},'file.txt'),join(project,'file.txt'))
+  assert.throws(() => files.read({sessionId:'inside-session',workspaceRoot:project},outside), /outside/)
 })
 
 test('automatic Workspace controller guard claims and checks resources', async () => {

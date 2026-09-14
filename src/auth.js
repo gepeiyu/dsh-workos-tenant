@@ -453,16 +453,23 @@ export class WorkOSAuthService extends Service {
     socket.once('close', () => { this.identitySockets.delete(socket) })
   }
 
-  resources(req, res) {
+  async resources(req, res) {
     const identity = this.identityFromRequest(req)
     if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
     if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' })
     const tenant = this.ctx.get('tenantPolicy')
     if (!tenant?.runtimeGuardsInstalled) return json(res, 503, { error: 'TENANT_POLICY_NOT_READY' })
+    const sessions = []
+    for (const record of tenant.listOwnedSessions(identity)) {
+      if (await tenant.canAccessSessionLocation(identity, record.id)) sessions.push(record.id)
+    }
+    const workspaces = tenant.listOwnedWorkspaces(identity)
+      .filter(record => tenant.canAccessWorkspaceLocation(identity, record.id))
+      .map(record => record.id)
     return json(res, 200, {
       identity,
-      sessions: tenant.listOwnedSessions(identity).map(record => record.id),
-      workspaces: tenant.listOwnedWorkspaces(identity).map(record => record.id),
+      sessions,
+      workspaces,
     })
   }
 

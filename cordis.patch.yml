@@ -13,6 +13,9 @@
         adminCanManageKeys: false
         network:
           allowNetworkAccess: false
+        workspace: {}
+          # When set, each user is restricted to root/organizationId/userId.
+          # root: /srv/dsh/workspaces
         storage:
           mode: local
           # Set mode to d1 in plugin settings and keep credentials in env:

@@ -170,6 +170,20 @@ Resources created before ownership registration was working remain on disk but a
 
 Members see only the Models settings page. Providers and credentials they add are stored under a deterministic user namespace and are hidden from other users; the server also rejects cross-user reads and writes. Built-in singleton provider sections keep their shared catalog, while a member's API key remains private to that member.
 
+## Workspace path isolation
+
+An owner or admin can set an absolute **Workspace root** in **Settings > Plugins > WorkOS tenant**. An empty value preserves the existing path behavior. Once configured, each authenticated user is restricted to:
+
+```text
+<workspace root>/<organization ID>/<user ID>/
+```
+
+The plugin creates that user directory on demand. The server applies the boundary to directory browsing, native-picker results, Workspace creation and streams, direct Session `cwd` creation, Session reads and mutations, and Workspace file APIs. Lexical traversal and symbolic-link escapes are rejected. The setting applies immediately.
+
+Before enabling it on an existing deployment, move each user's project directories under that user's derived directory and update or recreate the corresponding Workspace registrations. Already-owned Workspaces and Sessions outside the configured root become hidden; historical ownership recovery assigns an owner but does not move files.
+
+This boundary covers DSH Web Workspace and Session APIs. It does not reduce the host permissions of the shared DSH process or replace per-user containers when operating-system isolation is required.
+
 ## Storage configuration
 
 Without storage settings, the plugin stores tenant state in a local JSON file under `$DSH_HOME/tenant-state.json`. You can set a custom path with `DSH_TENANT_STATE_FILE`.
