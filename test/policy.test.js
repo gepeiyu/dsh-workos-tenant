@@ -33,10 +33,14 @@ test('sessions are claimed by the first user and cannot cross users', () => {
   expectTenantError(() => policy.claimSession({ ...bob, organizationId: 'org_other' }, 'session-1'), 'SESSION_ORGANIZATION_MISMATCH')
 })
 
-test('organization admins can inspect sessions but cannot cross organizations', () => {
+test('all roles are isolated to their own sessions and workspaces', () => {
   const policy = new TenantPolicy()
   policy.claimSession(alice, 'session-1')
-  assert.equal(policy.assertSessionAccess(admin, 'session-1').userId, 'user_alice')
+  policy.claimWorkspace(alice, 'workspace-1')
+  expectTenantError(() => policy.assertSessionAccess(admin, 'session-1'), 'SESSION_FORBIDDEN')
+  expectTenantError(() => policy.assertWorkspaceAccess(admin, 'workspace-1'), 'WORKSPACE_FORBIDDEN')
+  assert.deepEqual(policy.listOwnedSessions(admin), [])
+  assert.deepEqual(policy.listOwnedWorkspaces(admin), [])
   expectTenantError(() => policy.assertSessionAccess({ ...admin, organizationId: 'org_other' }, 'session-1'), 'SESSION_ORGANIZATION_MISMATCH')
 })
 
@@ -65,6 +69,8 @@ test('session key routing derives the key from the registered owner', () => {
 test('members cannot manage another user key', () => {
   const policy = new TenantPolicy()
   expectTenantError(() => policy.setApiKey(alice, 'openai', 'secret', bob.userId), 'KEY_FORBIDDEN')
+  policy.setApiKey(bob, 'openai', 'bob-secret')
+  expectTenantError(() => policy.resolveApiKey(admin, 'openai', bob.userId), 'KEY_FORBIDDEN')
   const managedPolicy = new TenantPolicy({ adminCanManageKeys: true })
   managedPolicy.setApiKey(admin, 'openai', 'admin-managed-secret', bob.userId)
   assert.equal(managedPolicy.resolveApiKey(admin, 'openai', bob.userId), 'admin-managed-secret')

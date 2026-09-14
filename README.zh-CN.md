@@ -157,9 +157,9 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 开启网络访问后，AuthKit 回调会跟随打开 DSH 时使用的主机，确保 OAuth 状态 Cookie 与回调保持同源。请在 WorkOS 控制台登记所有可能使用的完整回调地址，例如 `http://127.0.0.1:3080/auth/callback`、`http://172.20.5.172:3080/auth/callback` 和 `https://dsh.example.com/auth/callback`；同时把对应的根地址（例如 `http://172.20.5.172:3080/`）加入 Sign-out URI。WorkOS staging 环境允许局域网 HTTP 回调，production Web 应用需要使用 HTTPS 域名（原生客户端的回环地址例外）。配置中的回调地址仍作为本机访问或请求主机无效时的默认值。
 
-插件已为非回环浏览器启用经过认证的 Settings RPC；否则 DSH 会把设置镜像固定为内存模式并显示 `settings are unavailable in this browser`。升级后请重启 DSH，让新的客户端 bundle 生效。member 的会话和 Workspace 会按当前 WorkOS 用户过滤；只有 `adminRoles` 中列出的 `owner` 或 `admin` 才能查看同组织其他成员的资源。
+插件已为非回环浏览器启用经过认证的 Settings RPC；否则 DSH 会把设置镜像固定为内存模式并显示 `settings are unavailable in this browser`。升级后请重启 DSH，让新的客户端 bundle 生效。所有角色（包括 `owner`、`admin` 和 `member`）的会话与 Workspace 都只按当前 WorkOS 用户过滤，不能查看同组织其他成员的资源。
 
-`adminRoles` 控制跨用户可视范围，默认值为 `owner, admin`。如果管理员只需要管理配置而不能查看其他用户的 Session 或 Workspace，可将它设置为空数组（表单中留空）。`adminCanManageKeys` 独立控制管理员是否可以管理其他用户的模型凭据。
+会话和 Workspace 始终只对创建者可见。`adminRoles` 与 `adminCanManageKeys` 只控制角色是否可以管理其他用户的模型凭据；将 `adminRoles` 设置为空数组（表单中留空）即可取消这类跨用户凭据管理能力。
 
 member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。
 

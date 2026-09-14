@@ -114,7 +114,7 @@ export class TenantPolicy {
     if (existing.organizationId !== identity.organizationId) {
       throw new TenantError('SESSION_ORGANIZATION_MISMATCH', 'Session belongs to another organization')
     }
-    if (existing.userId !== identity.userId && !this.isAdmin(identity)) {
+    if (existing.userId !== identity.userId) {
       throw new TenantError('SESSION_FORBIDDEN', 'Session belongs to another user')
     }
     return { ...existing }
@@ -130,7 +130,7 @@ export class TenantPolicy {
     if (existing.organizationId !== identity.organizationId) {
       throw new TenantError('SESSION_ORGANIZATION_MISMATCH', 'Session belongs to another organization')
     }
-    if (existing.userId !== identity.userId && !this.isAdmin(identity)) {
+    if (existing.userId !== identity.userId) {
       throw new TenantError('SESSION_FORBIDDEN', 'Session belongs to another user')
     }
     return { ...existing }
@@ -148,7 +148,7 @@ export class TenantPolicy {
     if (existing.organizationId !== identity.organizationId) {
       throw new TenantError('WORKSPACE_ORGANIZATION_MISMATCH', 'Workspace belongs to another organization')
     }
-    if (existing.userId !== identity.userId && !this.isAdmin(identity)) {
+    if (existing.userId !== identity.userId) {
       throw new TenantError('WORKSPACE_FORBIDDEN', 'Workspace belongs to another user')
     }
     return { ...existing }
@@ -164,7 +164,7 @@ export class TenantPolicy {
     if (existing.organizationId !== identity.organizationId) {
       throw new TenantError('WORKSPACE_ORGANIZATION_MISMATCH', 'Workspace belongs to another organization')
     }
-    if (existing.userId !== identity.userId && !this.isAdmin(identity)) {
+    if (existing.userId !== identity.userId) {
       throw new TenantError('WORKSPACE_FORBIDDEN', 'Workspace belongs to another user')
     }
     return { ...existing }
@@ -202,7 +202,7 @@ export class TenantPolicy {
     identity = normalizeIdentity(identity)
     return [...this.sessions.entries()]
       .filter(([, record]) => record.organizationId === identity.organizationId &&
-        (record.userId === identity.userId || this.isAdmin(identity)))
+        record.userId === identity.userId)
       .map(([id, record]) => ({ id, ...record }))
   }
 
@@ -210,7 +210,7 @@ export class TenantPolicy {
     identity = normalizeIdentity(identity)
     return [...this.workspaces.entries()]
       .filter(([, record]) => record.organizationId === identity.organizationId &&
-        (record.userId === identity.userId || this.isAdmin(identity)))
+        record.userId === identity.userId)
       .map(([id, record]) => ({ id, ...record }))
   }
 
@@ -236,7 +236,7 @@ export class TenantPolicy {
     identity = normalizeIdentity(identity)
     const providerId = requiredString(provider, 'provider')
     const userId = requiredString(targetUserId, 'targetUserId')
-    if (userId !== identity.userId && !this.isAdmin(identity)) {
+    if (userId !== identity.userId && (!this.isAdmin(identity) || !this.adminCanManageKeys)) {
       throw new TenantError('KEY_FORBIDDEN', 'Cannot resolve another user key')
     }
     const record = this.apiKeys.get(`${identity.organizationId}:${userId}:${providerId}`)
