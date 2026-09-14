@@ -101,8 +101,8 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Cordis services exposed as `ctx.tenantPolicy` and `ctx.workosAuth` when WorkOS is enabled.
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
 - Signed-in user or email and organization details in the sidebar, with a sign-out menu.
-- Admin-only WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant.
-- Role-based settings visibility: members can manage only their own Models page; owner/admin roles manage tenant settings.
+- WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant for network access, workspace paths, connection, and storage.
+- Members can manage only their own Models page; tenant settings remain administrator-only.
 - Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
 - Automatic redirect of unauthenticated index requests to `/auth/login`.
@@ -117,7 +117,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - API key descriptions that never return the secret value.
 - Session ownership survives detach, browser disconnects, and restarts.
 - User-filtered real-time events and workspace/session streams.
-- Explicit historical ownership migration for unregistered resources.
+- Server-side repair support for legacy resource ownership when a deployment needs it.
 - Local JSON persistence when no D1 configuration is present.
 - Cloudflare D1 REST persistence when configured, with encrypted state payloads.
 - Pure Node tests for the policy and storage boundary.
@@ -154,7 +154,7 @@ export WORKOS_COOKIE_SECRET="at-least-32-random-characters"
 
 `WORKOS_ORGANIZATION_ID` binds this DSH instance to exactly one WorkOS organization. `WORKOS_COOKIE_SECRET` signs the local HttpOnly session cookie. It is not sent to WorkOS or the browser.
 
-After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage the connection, storage, and access policy. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Access-policy changes apply immediately; WorkOS connection and storage changes apply after restarting DSH. Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
+After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage network access, workspace paths, the connection, and storage. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
 
 The **Allow other devices on the network to access DSH** switch is off by default. Turn it on to bind the Web server to `0.0.0.0`; after restarting, DSH prints a LAN URL such as `http://172.20.5.172:3080/?token=...`. The browser Host/Origin fence trusts the detected LAN IPv4 addresses, while WorkOS authentication still applies. Restrict the port with the machine or network firewall.
 
@@ -162,11 +162,11 @@ When network access is enabled, the AuthKit callback follows the host used to op
 
 The plugin also enables authenticated Settings RPCs for non-loopback browsers, because DSH otherwise keeps the Settings mirror in memory and shows `settings are unavailable in this browser`. Restart DSH after upgrading so the client bundle is reloaded. Sessions and Workspaces for every role, including `owner`, `admin`, and `member`, are filtered by the authenticated WorkOS user and cannot be viewed by other members of the organization.
 
-Sessions and Workspaces are always private to their owners. `adminRoles` and `adminCanManageKeys` only control whether those roles may manage another user's model credentials; set `adminRoles` to an empty list (`[]`, represented by an empty field in the form) to disable that cross-user credential management.
+Sessions and Workspaces are always private to their owners for every role. Model credentials are isolated per user; any exceptional administrative repair is handled in the deployment configuration rather than through the settings page.
 
 After upgrading, restart DSH and reload all open browser tabs. The plugin clears the browser's previous session selection before loading the authenticated user's resources. Both the sidebar and the new-session Workspace chooser use server-filtered data; real-time updates are filtered for the user who opened each connection.
 
-Resources created before ownership registration was working remain on disk but are hidden until their owner is registered. Sign in as the original owner, then open **Settings > Plugins > WorkOS tenant > Historical resource ownership**. Verify the displayed account and WorkOS user ID, confirm the checkbox, and select **Restore historical Workspaces and sessions**. This explicitly assigns all unregistered resources to that account; it never changes already registered ownership. Only use it after confirming the unregistered resources belong to that account. Neither names nor email addresses can reliably establish historical ownership automatically.
+Resources created before ownership registration was working remain on disk but are hidden until their owner is registered. Historical ownership repairs are performed by the deployment operator after verifying the intended owner; the settings page does not expose a migration control.
 
 Members see only the Models settings page. Providers and credentials they add are stored under a deterministic user namespace and are hidden from other users; the server also rejects cross-user reads and writes. Built-in singleton provider sections keep their shared catalog, while a member's API key remains private to that member.
 
@@ -180,7 +180,7 @@ An owner or admin can set an absolute **Workspace root** in **Settings > Plugins
 
 The plugin creates that user directory on demand. The server applies the boundary to directory browsing, native-picker results, Workspace creation and streams, direct Session `cwd` creation, Session reads and mutations, and Workspace file APIs. Lexical traversal and symbolic-link escapes are rejected. The setting applies immediately.
 
-Before enabling it on an existing deployment, move each user's project directories under that user's derived directory and update or recreate the corresponding Workspace registrations. Already-owned Workspaces and Sessions outside the configured root become hidden; historical ownership recovery assigns an owner but does not move files.
+Before enabling it on an existing deployment, move each user's project directories under that user's derived directory and update or recreate the corresponding Workspace registrations. Already-owned Workspaces and Sessions outside the configured root become hidden.
 
 This boundary covers DSH Web Workspace and Session APIs. It does not reduce the host permissions of the shared DSH process or replace per-user containers when operating-system isolation is required.
 

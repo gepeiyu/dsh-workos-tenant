@@ -18,11 +18,7 @@ const zh = {
   role: '角色',
   tenantTab: 'WorkOS 租户',
   tenantTitle: 'WorkOS 租户配置',
-  tenantIntro: '管理登录、访问策略和租户状态存储。访问策略立即生效，其余变更将在重启 DSH 后生效。',
-  accessPolicy: '访问策略',
-  adminRoles: '可管理其他用户模型凭据的角色',
-  adminRolesHint: '用逗号分隔。会话和 Workspace 始终只对本人可见；是否允许管理员管理其他用户模型凭据还受下方开关控制。',
-  adminKeys: '允许管理员管理其他用户的模型密钥',
+  tenantIntro: '管理登录、网络访问、工作区路径和租户状态存储。连接或存储变更将在重启 DSH 后生效。',
   network: '网络访问',
   allowNetworkAccess: '允许同一网络中的其他设备访问 DSH',
   allowNetworkAccessHint: '开启后 DSH 会监听所有网卡。保存后需要重启 DSH，并确认防火墙只允许可信网络。',
@@ -52,14 +48,10 @@ const zh = {
   secretMissing: '尚未配置',
   save: '保存配置',
   saving: '正在保存…',
-  saved: '访问策略已生效。请重启 DSH 以应用连接或存储变更。',
+  saved: '配置已保存。请重启 DSH 以应用连接或存储变更。',
   loading: '正在加载配置…',
   loadFailed: '无法加载租户配置。',
   retry: '重试',
-  legacyTitle: '历史资源归属',
-  legacyCount: '未登记资源',
-  legacyConfirm: '将未登记的历史资源归属当前账户',
-  legacyRestore: '恢复历史工作区与会话',
 }
 
 const en = {
@@ -70,11 +62,7 @@ const en = {
   role: 'Role',
   tenantTab: 'WorkOS tenant',
   tenantTitle: 'WorkOS tenant configuration',
-  tenantIntro: 'Manage sign-in, access policy, and tenant-state storage. Access policy applies now; other changes apply after restarting DSH.',
-  accessPolicy: 'Access policy',
-  adminRoles: 'Roles allowed to manage other users\' model keys',
-  adminRolesHint: 'Comma separated. Sessions and Workspaces are always private to their owners; the switch below must also be enabled for cross-user model-key management.',
-  adminKeys: 'Allow administrators to manage other users\' model keys',
+  tenantIntro: 'Manage sign-in, network access, workspace paths, and tenant-state storage. Connection and storage changes apply after restarting DSH.',
   network: 'Network access',
   allowNetworkAccess: 'Allow other devices on the network to access DSH',
   allowNetworkAccessHint: 'DSH will listen on all network interfaces. Restart DSH after saving and restrict access with your firewall.',
@@ -104,14 +92,10 @@ const en = {
   secretMissing: 'Not configured',
   save: 'Save configuration',
   saving: 'Saving…',
-  saved: 'Access policy is active. Restart DSH to apply connection or storage changes.',
+  saved: 'Configuration saved. Restart DSH to apply connection or storage changes.',
   loading: 'Loading configuration…',
   loadFailed: 'Could not load tenant configuration.',
   retry: 'Retry',
-  legacyTitle: 'Historical resource ownership',
-  legacyCount: 'Unregistered resources',
-  legacyConfirm: 'Assign unregistered historical resources to this account',
-  legacyRestore: 'Restore historical Workspaces and sessions',
 }
 
 const styles = `
@@ -382,53 +366,6 @@ function SecretField({ label, configured, value, onChange, t }) {
   )
 }
 
-function LegacyResources({ t }) {
-  const account = useAccount()
-  const [counts, setCounts] = useState()
-  const [confirmed, setConfirmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState()
-  useEffect(() => {
-    let active = true
-    void fetch('/auth/legacy-resources', { credentials: 'same-origin', cache: 'no-store' })
-      .then(async response => {
-        if (!response.ok) throw new Error(t('loadFailed'))
-        const result = await response.json()
-        if (active) setCounts(result)
-      }).catch(reason => { if (active) setError(reason.message) })
-    return () => { active = false }
-  }, [])
-  const restore = async () => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      const response = await fetch('/auth/legacy-resources', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ confirmedUserId: account.identity.userId }),
-      })
-      if (!response.ok) throw new Error(t('loadFailed'))
-      window.location.reload()
-    } catch (reason) {
-      setError(reason.message)
-      setBusy(false)
-    }
-  }
-  return <section className="dsh-workos-settings__group">
-    <h4 className="dsh-workos-settings__group-title">{t('legacyTitle')}</h4>
-    {counts && <p>{t('legacyCount')}: Workspace {counts.workspaces} · Session {counts.sessions}</p>}
-    {account && <p>{account.user.name || account.user.email} ({account.identity.userId})</p>}
-    <label className="dsh-workos-settings__check">
-      <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
-      <span>{t('legacyConfirm')}</span>
-    </label>
-    <Button type="button" variant="outline" size="sm" disabled={!confirmed || busy || !account || !counts || !(counts.sessions + counts.workspaces)} onClick={restore}>
-      {t('legacyRestore')}
-    </Button>
-    {error && <p className="dsh-workos-settings__error">{error}</p>}
-  </section>
-}
-
 function TenantSettingsTab({ t }) {
   const [draft, setDraft] = useState()
   const [secrets, setSecrets] = useState({ apiKey: '', cookieSecret: '', encryptionKey: '', apiToken: '' })
@@ -513,7 +450,6 @@ function TenantSettingsTab({ t }) {
     </div>
   )
 
-  const roles = draft.policy.adminRoles.join(', ')
   const d1 = draft.storage.mode === 'd1'
   return (
     <form className="dsh-workos-settings" onSubmit={save}>
@@ -521,23 +457,6 @@ function TenantSettingsTab({ t }) {
         <h3 className="dsh-workos-settings__title">{t('tenantTitle')}</h3>
         <p className="dsh-workos-settings__intro">{t('tenantIntro')}</p>
       </header>
-      <LegacyResources t={t} />
-      <section className="dsh-workos-settings__group">
-        <h4 className="dsh-workos-settings__group-title">{t('accessPolicy')}</h4>
-        <div className="dsh-workos-settings__grid">
-          <Field label={t('adminRoles')} hint={t('adminRolesHint')} wide>
-            <input className="dsh-workos-settings__input" value={roles} onChange={event => {
-              change(['policy', 'adminRoles'], event.target.value.split(',').map(value => value.trim()).filter(Boolean))
-            }} />
-          </Field>
-          <label className="dsh-workos-settings__check dsh-workos-settings__field--wide">
-            <input type="checkbox" checked={draft.policy.adminCanManageKeys} onChange={event => {
-              change(['policy', 'adminCanManageKeys'], event.target.checked)
-            }} />
-            <span>{t('adminKeys')}</span>
-          </label>
-        </div>
-      </section>
       <section className="dsh-workos-settings__group">
         <h4 className="dsh-workos-settings__group-title">{t('workspaceScope')}</h4>
         <Field label={t('workspaceRoot')} hint={t('workspaceRootHint')} wide>

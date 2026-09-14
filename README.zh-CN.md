@@ -101,8 +101,8 @@ sequenceDiagram
 - WorkOS 启用时提供 `ctx.tenantPolicy` 和 `ctx.workosAuth` Cordis 服务；
 - WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
 - 登录后在侧栏底部显示用户名或邮箱及组织名，并提供退出登录菜单；
-- 在 DSH「设置 > 插件 > WorkOS 租户」提供仅管理员可见的租户配置页；
-- 按角色控制设置可视范围：member 只能管理自己的「模型」，owner/admin 才能管理租户配置；
+- 在 DSH「设置 > 插件 > WorkOS 租户」提供网络访问、工作区路径、连接和存储配置；
+- member 只能管理自己的「模型」，租户配置页仅管理员可见；
 - Provider 和凭据按用户隔离，未加用户前缀的共享 Provider 可供组织内使用；
 - 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
 - 未认证的首页请求自动跳转到 `/auth/login`；
@@ -117,7 +117,7 @@ sequenceDiagram
 - API Key 描述接口不会返回 Secret 值；
 - 会话卸载、浏览器断开和服务重启不会删除所属用户记录；
 - 实时广播、工作区和会话数据流按连接所属用户过滤；
-- 显式恢复未登记的历史资源归属；
+- 支持由部署维护者直接修复历史资源归属；
 - 未配置 D1 时使用本地 JSON 持久化；
 - 配置 D1 时通过 Cloudflare D1 REST API 持久化，并加密状态内容；
 - 面向策略和存储边界的纯 Node 测试。
@@ -154,7 +154,7 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 `WORKOS_ORGANIZATION_ID` 会把这个 DSH 实例绑定到一个 WorkOS 组织。`WORKOS_COOKIE_SECRET` 用于签名本地 HttpOnly Session Cookie，不会发送给 WorkOS 或浏览器。
 
-登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理连接、存储和访问策略。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。访问策略保存后立即生效；WorkOS 连接和存储变更需要重启 DSH。首次保存并成功重启前，请保留启动所需的环境变量。
+登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理网络访问、工作区路径、连接和存储。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。首次保存并成功重启前，请保留启动所需的环境变量。
 
 「允许同一网络中的其他设备访问 DSH」默认关闭。开启后保存并重启，Web 服务会监听 `0.0.0.0`，DSH 启动日志会打印类似 `http://172.20.5.172:3080/?token=...` 的局域网地址。浏览器 Host/Origin 校验会信任检测到的局域网 IPv4 地址，WorkOS 登录仍然有效。请使用系统或网络防火墙限制端口访问范围。
 
@@ -162,11 +162,11 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 插件已为非回环浏览器启用经过认证的 Settings RPC；否则 DSH 会把设置镜像固定为内存模式并显示 `settings are unavailable in this browser`。升级后请重启 DSH，让新的客户端 bundle 生效。所有角色（包括 `owner`、`admin` 和 `member`）的会话与 Workspace 都只按当前 WorkOS 用户过滤，不能查看同组织其他成员的资源。
 
-会话和 Workspace 始终只对创建者可见。`adminRoles` 与 `adminCanManageKeys` 只控制角色是否可以管理其他用户的模型凭据；将 `adminRoles` 设置为空数组（表单中留空）即可取消这类跨用户凭据管理能力。
+会话和 Workspace 对所有角色都始终只对创建者可见。模型凭据按用户隔离；特殊的管理员维护操作通过部署配置处理，不在设置页提供入口。
 
 升级后请重启 DSH，并刷新所有已打开的浏览器页面。插件会先清除浏览器保存的上次会话选择，再加载当前用户的资源；侧栏、新会话的工作区选择器和实时更新均使用服务端按用户过滤的数据。
 
-归属登记生效前创建的历史工作区和会话仍保存在磁盘中，但没有所属用户记录时会被隐藏。请先登录历史资源的原主人账号（例如葛培宇），打开「设置 > 插件 > WorkOS 租户 > 历史资源归属」，核对显示的账户和 WorkOS 用户 ID，勾选确认后点击「恢复历史工作区与会话」。此操作将所有未登记资源明确归属当前账号，不会改写已经登记的所属用户。只有确认这些未登记资源属于该账号时才执行；不能仅凭姓名或邮箱自动推断历史归属。
+归属登记生效前创建的历史工作区和会话仍保存在磁盘中，但没有所属用户记录时会被隐藏。历史资源如需恢复，由部署维护者核对目标用户后直接修复，设置页不再提供迁移操作。
 
 member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。
 
@@ -180,7 +180,7 @@ owner 或 admin 可以在「设置 > 插件 > WorkOS 租户」中填写绝对路
 
 插件会按需创建用户目录。服务端会对目录浏览器、系统目录选择结果、Workspace 创建及数据流、直接创建 Session 时的 `cwd`、Session 读取和修改，以及 Workspace 文件接口执行路径校验；目录穿越和符号链接逃逸都会被拒绝。保存后立即生效。
 
-现有部署启用前，应先把各用户的项目目录移动到其派生目录下，再更新或重新创建 Workspace 登记。已经归属但位于新根目录之外的 Workspace 和 Session 会被隐藏；历史资源归属恢复只登记所有者，不会移动文件。
+现有部署启用前，应先把各用户的项目目录移动到其派生目录下，再更新或重新创建 Workspace 登记。已经归属但位于新根目录之外的 Workspace 和 Session 会被隐藏。
 
 该边界保护 DSH Web 的 Workspace 和 Session 接口，但不会降低共享 DSH 进程在宿主机上的权限；需要操作系统级隔离时仍应使用独立容器。
 
