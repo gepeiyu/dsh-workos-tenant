@@ -2,6 +2,8 @@
 # WorkOS auth is enabled automatically when all WORKOS_* variables are present.
 # Keep secrets out of this patch and out of the browser bundle.
 - insert:
+    - id: dsh-workos-tenant-network
+      name: dsh-workos-tenant/network
     - id: dsh-workos-tenant
       name: dsh-workos-tenant
       config:
@@ -9,8 +11,20 @@
           - owner
           - admin
         adminCanManageKeys: false
+        network:
+          allowNetworkAccess: false
         storage:
           mode: local
           # Set mode to d1 in plugin settings and keep credentials in env:
           # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID,
           # CLOUDFLARE_API_TOKEN, DSH_TENANT_ENCRYPTION_KEY.
+- id: webserver
+  inject: [webStartup, tenantNetwork]
+  config:
+    host: !!js >-
+      ctx.tenantNetwork.allowNetworkAccess ? '0.0.0.0' :
+      (ctx.webStartup.host ?? '127.0.0.1')
+    port: !!js ctx.webStartup.port ?? 3080
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024

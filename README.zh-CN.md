@@ -153,6 +153,8 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理连接、存储和访问策略。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。访问策略保存后立即生效；WorkOS 连接和存储变更需要重启 DSH。首次保存并成功重启前，请保留启动所需的环境变量。
 
+「允许同一网络中的其他设备访问 DSH」默认关闭。开启后保存并重启，Web 服务会监听 `0.0.0.0`，DSH 启动日志会打印类似 `http://172.20.5.172:3080/?token=...` 的局域网地址。浏览器 Host/Origin 校验会信任检测到的局域网 IPv4 地址，WorkOS 登录仍然有效。请使用系统或网络防火墙限制端口访问范围。
+
 `adminRoles` 控制跨用户可视范围，默认值为 `owner, admin`。如果管理员只需要管理配置而不能查看其他用户的 Session 或 Workspace，可将它设置为空数组（表单中留空）。`adminCanManageKeys` 独立控制管理员是否可以管理其他用户的模型凭据。
 
 member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。

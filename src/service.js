@@ -19,6 +19,9 @@ export class TenantPolicyService extends Service {
   static Config = Schema.object({
     adminRoles: Schema.array(Schema.string()).default(['owner', 'admin']),
     adminCanManageKeys: Schema.boolean().default(false),
+    network: Schema.object({
+      allowNetworkAccess: Schema.boolean().default(false),
+    }).default({}),
     workos: Schema.any().hidden(),
     storage: Schema.object({
       mode: Schema.union([Schema.const('local'), Schema.const('d1')]).default('local'),

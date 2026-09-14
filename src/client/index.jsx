@@ -21,6 +21,9 @@ const zh = {
   adminRoles: '可跨用户访问的角色',
   adminRolesHint: '用逗号分隔。留空后 owner/admin 仍可管理此配置，但不能查看其他用户会话。',
   adminKeys: '允许管理员管理其他用户的模型密钥',
+  network: '网络访问',
+  allowNetworkAccess: '允许同一网络中的其他设备访问 DSH',
+  allowNetworkAccessHint: '开启后 DSH 会监听所有网卡。保存后需要重启 DSH，并确认防火墙只允许可信网络。',
   workosConnection: 'WorkOS 连接',
   clientId: 'Client ID',
   organizationId: 'Organization ID',
@@ -61,6 +64,9 @@ const en = {
   adminRoles: 'Cross-user access roles',
   adminRolesHint: 'Comma separated. With an empty list, owner/admin can still manage this page but cannot inspect other users\' sessions.',
   adminKeys: 'Allow administrators to manage other users\' model keys',
+  network: 'Network access',
+  allowNetworkAccess: 'Allow other devices on the network to access DSH',
+  allowNetworkAccessHint: 'DSH will listen on all network interfaces. Restart DSH after saving and restrict access with your firewall.',
   workosConnection: 'WorkOS connection',
   clientId: 'Client ID',
   organizationId: 'Organization ID',
@@ -369,6 +375,7 @@ function TenantSettingsTab({ t }) {
     setError(undefined)
     const body = {
       policy: draft.policy,
+      network: draft.network,
       workos: {
         ...draft.workos,
         apiKey: secrets.apiKey,
@@ -436,6 +443,18 @@ function TenantSettingsTab({ t }) {
             <span>{t('adminKeys')}</span>
           </label>
         </div>
+      </section>
+      <section className="dsh-workos-settings__group">
+        <h4 className="dsh-workos-settings__group-title">{t('network')}</h4>
+        <label className="dsh-workos-settings__check">
+          <input type="checkbox" checked={Boolean(draft.network?.allowNetworkAccess)} onChange={event => {
+            change(['network', 'allowNetworkAccess'], event.target.checked)
+          }} />
+          <span>
+            {t('allowNetworkAccess')}
+            <span className="dsh-workos-settings__hint">{t('allowNetworkAccessHint')}</span>
+          </span>
+        </label>
       </section>
       <section className="dsh-workos-settings__group">
         <h4 className="dsh-workos-settings__group-title">{t('workosConnection')}</h4>

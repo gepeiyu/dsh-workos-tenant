@@ -15,6 +15,7 @@
     "./auth": "./src/auth.js",
     "./config": "./src/config.js",
     "./model-scope": "./src/model-scope.js",
+    "./network": "./src/network.js",
     "./storage": "./src/storage.js",
     "./service": "./src/service.js"
   },

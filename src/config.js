@@ -96,7 +96,8 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
   const policy = input.policy
   const workos = input.workos
   const storage = input.storage
-  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage)) {
+  const network = input.network ?? {}
+  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage) || !isRecord(network)) {
     throw new TenantConfigError('policy, workos, and storage sections are required')
   }
 
@@ -108,6 +109,11 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
   const normalized = {
     adminRoles: uniqueRoles(policy.adminRoles),
     adminCanManageKeys: requiredBoolean(policy.adminCanManageKeys, 'adminCanManageKeys'),
+    network: {
+      allowNetworkAccess: network.allowNetworkAccess === undefined
+        ? Boolean(fallback.network?.allowNetworkAccess)
+        : requiredBoolean(network.allowNetworkAccess, 'allowNetworkAccess'),
+    },
     workos: {
       clientId: requiredString(workos.clientId, 'WorkOS client ID'),
       organizationId: requiredString(workos.organizationId, 'WorkOS organization ID'),
@@ -165,6 +171,9 @@ export function publicManagedTenantConfig(config) {
     policy: {
       adminRoles: [...(config.adminRoles ?? [])],
       adminCanManageKeys: Boolean(config.adminCanManageKeys),
+    },
+    network: {
+      allowNetworkAccess: Boolean(config.network?.allowNetworkAccess),
     },
     workos: {
       clientId: config.workos?.clientId ?? '',

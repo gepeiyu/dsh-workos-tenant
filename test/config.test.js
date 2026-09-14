@@ -58,3 +58,14 @@ test('blank write-only fields preserve configured secrets', () => {
   assert.equal(normalized.workos.cookieSecret, complete.workos.cookieSecret)
   assert.equal(normalized.storage.encryptionKey, complete.storage.encryptionKey)
 })
+
+test('network access defaults to loopback and can be enabled', () => {
+  const local = normalizeManagedTenantConfig(complete)
+  assert.equal(local.network.allowNetworkAccess, false)
+  const network = normalizeManagedTenantConfig({
+    ...complete,
+    network: { allowNetworkAccess: true },
+  })
+  assert.equal(network.network.allowNetworkAccess, true)
+  assert.equal(publicManagedTenantConfig(network).network.allowNetworkAccess, true)
+})

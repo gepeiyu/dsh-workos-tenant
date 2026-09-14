@@ -153,6 +153,8 @@ export WORKOS_COOKIE_SECRET="at-least-32-random-characters"
 
 After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage the connection, storage, and access policy. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Access-policy changes apply immediately; WorkOS connection and storage changes apply after restarting DSH. Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
 
+The **Allow other devices on the network to access DSH** switch is off by default. Turn it on to bind the Web server to `0.0.0.0`; after restarting, DSH prints a LAN URL such as `http://172.20.5.172:3080/?token=...`. The browser Host/Origin fence trusts the detected LAN IPv4 addresses, while WorkOS authentication still applies. Restrict the port with the machine or network firewall.
+
 The `adminRoles` field controls cross-user visibility. The default is `owner, admin`. Set it to an empty list (`[]`, represented by an empty field in the form) when administrators should manage configuration but must not inspect another user's sessions or workspace. `adminCanManageKeys` separately controls whether those roles may manage another user's model credentials.
 
 Members see only the Models settings page. Providers and credentials they add are stored under a deterministic user namespace and are hidden from other users; the server also rejects cross-user reads and writes. Built-in singleton provider sections keep their shared catalog, while a member's API key remains private to that member.
