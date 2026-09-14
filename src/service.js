@@ -46,8 +46,10 @@ export class TenantPolicyService extends Service {
 
   async [Service.init]() {
     this.policy.hydrate(await this.storage.load())
-    this.auth = this.ctx.get('workosAuth', false)
-    if (this.auth) this.installRuntimeGuards()
+    this.ctx.inject(['workosAuth'], ctx => {
+      this.auth = ctx.workosAuth
+      this.installRuntimeGuards()
+    })
   }
 
   updateAccessPolicy(config) {
@@ -133,18 +135,90 @@ export class TenantPolicyService extends Service {
   }
 
   installRuntimeGuards() {
+    if (this.runtimeGuardsInstalled) return
+    this.runtimeGuardsInstalled = true
     this.patchSessionController(this.ctx.get('sessionController', false))
     this.patchWorkspaceController(this.ctx.get('workspaceController', false))
+    this.patchWorkspaceFiles(this.ctx.get('workspaceFiles', false))
+    this.patchGateway(this.ctx.get('typertGateway', false))
     this.patchApiProxy(this.ctx.get('apiProxy', false))
     this.patchCredentialProvider(this.ctx.get('credentials', false))
     this.patchAdminService(this.ctx.get('pluginInventory', false), ['list'])
     this.ctx.on('internal/service', name => {
       if (name === 'sessionController') this.patchSessionController(this.ctx.get(name, false))
       if (name === 'workspaceController') this.patchWorkspaceController(this.ctx.get(name, false))
+      if (name === 'workspaceFiles') this.patchWorkspaceFiles(this.ctx.get(name, false))
+      if (name === 'typertGateway') this.patchGateway(this.ctx.get(name, false))
       if (name === 'apiProxy') this.patchApiProxy(this.ctx.get(name, false))
       if (name === 'credentials') this.patchCredentialProvider(this.ctx.get(name, false))
       if (name === 'pluginInventory') this.patchAdminService(this.ctx.get(name, false), ['list'])
     })
+    this.ctx.on('session/created', session => {
+      const parent = this.policy.sessions.get(session.header?.parentSession)
+      const identity = parent ?? this.auth.currentIdentity()
+      if (identity) this.claimSession({ ...identity, role: identity.role ?? 'member' }, session.id)
+    })
+  }
+
+  async legacyResources(identity, adopt = false) {
+    if (!isConfigurationAdmin(identity)) throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required')
+    const stored = await this.ctx.get('sessionPersistence').list()
+    const headers = stored.map(row => row.header ?? row)
+    const workspaces = this.ctx.get('workspaceRegistry').list()
+    const sessions = headers.filter(header => !this.policy.sessions.has(header.id))
+    const missingWorkspaces = workspaces.filter(workspace => !this.policy.workspaces.has(workspace.id))
+    if (adopt) {
+      const next = this.policy.snapshot()
+      const record = {
+        organizationId: identity.organizationId, userId: identity.userId,
+        owner: `${identity.organizationId}:${identity.userId}`, createdAt: new Date().toISOString(),
+      }
+      next.sessions.push(...sessions.map(header => ({ id: header.id, ...record })))
+      next.workspaces.push(...missingWorkspaces.map(workspace => ({ id: workspace.id, ...record })))
+      this.policy.hydrate(next)
+      await this.persistState(next)
+    }
+    return { sessions: sessions.length, workspaces: missingWorkspaces.length }
+  }
+
+  patchGateway(gateway) {
+    const target = gateway?.[Symbol.for('cordis.original')] ?? gateway
+    const prototype = target && Object.getPrototypeOf(target)
+    if (!prototype || prototype.__dshTenantEventsGuarded || typeof prototype.openRemoteEvents !== 'function') return
+    const original = prototype.openRemoteEvents
+    const tenant = this
+    prototype.openRemoteEvents = function (payload, signal) {
+      const identity = tenant.currentIdentity()
+      const stream = original.call(this, payload, signal)
+      return (async function* () {
+        for await (const frame of stream) {
+          if (frame.type === 'waterfall') {
+            if (tenant.canAccessSession(identity, frame.agentId)) yield frame
+          } else if (frame.type === 'emit' && frame.event.startsWith('api-session/')) {
+            const id = frame.event === 'api-session/added' ? frame.args?.[0]?.sessionId : frame.args?.[0]
+            if (tenant.canAccessSession(identity, id)) yield frame
+          } else {
+            yield frame
+          }
+        }
+      })()
+    }
+    Object.defineProperty(prototype, '__dshTenantEventsGuarded', { value: true, configurable: true })
+    this.ctx.effect(() => () => {
+      prototype.openRemoteEvents = original
+      delete prototype.__dshTenantEventsGuarded
+    }, 'tenant-policy: restore event stream guards')
+  }
+
+  patchWorkspaceFiles(files) {
+    const tenant = this
+    const wrappers = Object.fromEntries(['list', 'read', 'readAll', 'readBytes', 'readRelated', 'stat', 'changes'].map(name => [name,
+      original => function (scope, ...args) {
+        tenant.assertSessionAccess(tenant.currentIdentity(), scope?.sessionId)
+        return original.call(this, scope, ...args)
+      },
+    ]))
+    this.patchPrototype(files, wrappers)
   }
 
   patchAdminService(service, methods) {
@@ -166,7 +240,7 @@ export class TenantPolicyService extends Service {
     }
     if (originals.size === 0) return
     Object.defineProperty(prototype, '__dshTenantAdminGuarded', { value: true, configurable: true })
-    this.ctx.effect(() => {
+    this.ctx.effect(() => () => {
       for (const [name, original] of originals) prototype[name] = original
       delete prototype.__dshTenantAdminGuarded
     }, 'tenant-policy: restore admin service guards')
@@ -207,7 +281,7 @@ export class TenantPolicyService extends Service {
       return originals.unset.call(this, targetRef, ...args)
     }
     Object.defineProperty(prototype, '__dshTenantCredentials', { value: true, configurable: true })
-    this.ctx.effect(() => {
+    this.ctx.effect(() => () => {
       for (const [name, original] of Object.entries(originals)) prototype[name] = original
       delete prototype.__dshTenantCredentials
     }, 'tenant-policy: restore credential scoping')
@@ -305,7 +379,7 @@ export class TenantPolicyService extends Service {
     }
 
     Object.defineProperty(target, '__dshTenantApiGuarded', { value: true, configurable: true })
-    this.ctx.effect(() => {
+    this.ctx.effect(() => () => {
       Object.assign(settings, originals.settings)
       Object.assign(llm, originals.llm)
       Object.assign(sessions, originals.sessions)
@@ -326,7 +400,7 @@ export class TenantPolicyService extends Service {
     }
     if (originals.size === 0) return
     Object.defineProperty(prototype, '__dshTenantGuarded', { value: true, configurable: true })
-    this.ctx.effect(() => {
+    this.ctx.effect(() => () => {
       for (const [name, original] of originals) prototype[name] = original
       delete prototype.__dshTenantGuarded
     }, `tenant-policy: restore ${target.name ?? 'controller'} guards`)
@@ -375,7 +449,16 @@ export class TenantPolicyService extends Service {
       create: original => function (request, ...args) {
         const identity = requireIdentity()
         if (request?.workspaceId) service.assertWorkspaceAccess(identity, request.workspaceId)
-        return Promise.resolve(original.call(this, request, ...args)).then(value => guard.claim(identity, request, value))
+        const controller = this
+        return (async () => {
+          if (request?.sessionId) {
+            const stored = await service.ctx.get('sessionPersistence').list()
+            if (stored.some(row => (row.header ?? row).id === request.sessionId)) {
+              service.assertSessionAccess(identity, request.sessionId)
+            }
+          }
+          return guard.claim(identity, request, await original.call(controller, request, ...args))
+        })()
       },
       selectModel: sessionRequest,
       rename: sessionRequest,
@@ -437,6 +520,7 @@ export class TenantPolicyService extends Service {
       create: original => function (request, ...args) {
         const identity = requireIdentity()
         return Promise.resolve(original.call(this, request, ...args)).then(value => {
+          if (value?.created === false) service.assertWorkspaceAccess(identity, value?.workspace?.workspaceId)
           service.claimWorkspace(identity, value?.workspace?.workspaceId)
           return value
         })
@@ -464,11 +548,14 @@ export class TenantPolicyService extends Service {
               const value = frame.value
               yield { ...frame, value: {
                 ...value,
-                items: (value.items ?? []).filter(item => service.canAccessWorkspace(current, item.workspaceId)),
+                items: (value.items ?? []).filter(item => service.canAccessWorkspace(current, item.workspaceId))
+                  .map(item => ({ ...item, sessionIds: (item.sessionIds ?? []).filter(id => service.canAccessSession(current, id)) })),
                 archivedSessionIds: (value.archivedSessionIds ?? []).filter(id => service.canAccessSession(current, id)),
               } }
             } else if (frame?.type === 'upsert') {
-              if (service.canAccessWorkspace(current, frame.workspace?.workspaceId)) yield frame
+              if (service.canAccessWorkspace(current, frame.workspace?.workspaceId)) yield { ...frame, workspace: {
+                ...frame.workspace, sessionIds: (frame.workspace.sessionIds ?? []).filter(id => service.canAccessSession(current, id)),
+              } }
             } else if (frame?.type === 'remove') {
               if (service.canAccessWorkspace(current, frame.workspaceId)) yield frame
             } else if (frame?.type === 'order') {
@@ -500,11 +587,10 @@ export async function apply(ctx, config = {}) {
       store: managedStore,
       effectiveConfig,
     },
-  })
+  }).await()
 
-  await ctx.plugin(TenantPolicyService, effectiveConfig)
-  const service = ctx.get('tenantPolicy')
-  ctx.on('session/disposed', session => service.forgetSession(session.id))
+  await ctx.plugin(TenantPolicyService, effectiveConfig).await()
+  // Harness disposal detaches a live session; its durable owner must survive.
 }
 
 export default apply

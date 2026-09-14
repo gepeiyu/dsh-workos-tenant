@@ -80,7 +80,8 @@ This package implements the DSH-side WorkOS gate, but deliberately does **not** 
 - Cloudflare Worker, reverse proxy, DNS, or TLS;
 - organization-to-container routing;
 - Cloudflare Worker D1 bindings inside a Node process (D1 is accessed through the Cloudflare API);
-- provider-specific secret vault integration.
+- provider-specific secret vault integration;
+- operating-system filesystem or process isolation; shared DSH processes retain their host filesystem privileges.
 
 The plugin owns the WorkOS authorization-code exchange, HttpOnly session cookie, login redirect, logout, and DSH route protection. It derives a trusted identity from the server-side WorkOS response:
 
@@ -109,12 +110,14 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Verified identity access through `ctx.workosAuth.identityFromRequest()` and `runWithRequestIdentity()`.
 - Organization and user identity normalization.
 - Organization and user ownership for sessions and workspaces.
-- Organization-admin access to users in the same organization only.
+- Sessions and workspaces are private to their owner for every role, including owner/admin.
 - User-scoped API key storage and owner-derived session-key routing interfaces.
 - Automatic Session/Workspace Remote guards when WorkOS authentication is enabled.
 - Pure Session/Workspace controller Guards for direct integrations and tests.
 - API key descriptions that never return the secret value.
-- Session disposal cleanup through DSH's `session/disposed` event.
+- Session ownership survives detach, browser disconnects, and restarts.
+- User-filtered real-time events and workspace/session streams.
+- Explicit historical ownership migration for unregistered resources.
 - Local JSON persistence when no D1 configuration is present.
 - Cloudflare D1 REST persistence when configured, with encrypted state payloads.
 - Pure Node tests for the policy and storage boundary.
@@ -160,6 +163,10 @@ When network access is enabled, the AuthKit callback follows the host used to op
 The plugin also enables authenticated Settings RPCs for non-loopback browsers, because DSH otherwise keeps the Settings mirror in memory and shows `settings are unavailable in this browser`. Restart DSH after upgrading so the client bundle is reloaded. Sessions and Workspaces for every role, including `owner`, `admin`, and `member`, are filtered by the authenticated WorkOS user and cannot be viewed by other members of the organization.
 
 Sessions and Workspaces are always private to their owners. `adminRoles` and `adminCanManageKeys` only control whether those roles may manage another user's model credentials; set `adminRoles` to an empty list (`[]`, represented by an empty field in the form) to disable that cross-user credential management.
+
+After upgrading, restart DSH and reload all open browser tabs. The plugin clears the browser's previous session selection before loading the authenticated user's resources. Both the sidebar and the new-session Workspace chooser use server-filtered data; real-time updates are filtered for the user who opened each connection.
+
+Resources created before ownership registration was working remain on disk but are hidden until their owner is registered. Sign in as the original owner, then open **Settings > Plugins > WorkOS tenant > Historical resource ownership**. Verify the displayed account and WorkOS user ID, confirm the checkbox, and select **Restore historical Workspaces and sessions**. This explicitly assigns all unregistered resources to that account; it never changes already registered ownership. Only use it after confirming the unregistered resources belong to that account. Neither names nor email addresses can reliably establish historical ownership automatically.
 
 Members see only the Models settings page. Providers and credentials they add are stored under a deterministic user namespace and are hidden from other users; the server also rejects cross-user reads and writes. Built-in singleton provider sections keep their shared catalog, while a member's API key remains private to that member.
 

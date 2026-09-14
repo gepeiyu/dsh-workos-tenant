@@ -364,3 +364,32 @@ test('tenant settings are admin-only and redact secrets', async () => {
   assert.deepEqual(policyUpdate.adminRoles, [])
   assert.equal(saved.workos.apiKey, 'sk_secret')
 })
+
+test('legacy recovery requires an administrator, matching origin, and the current user confirmation', async () => {
+  const service = Object.create(WorkOSAuthService.prototype)
+  service.sessions = new WorkOSAuthSessionStore({cookieSecret:'l'.repeat(32)})
+  service.config = {redirectUri:'http://127.0.0.1:3080/auth/callback'}
+  const admin = service.sessions.createSession({organizationId:'org_test',userId:'original-owner',role:'owner'})
+  const member = service.sessions.createSession({organizationId:'org_test',userId:'member',role:'member'})
+  const calls=[]
+  service.ctx = {get:()=>({runtimeGuardsInstalled:true,legacyResources:async (identity,adopt)=> {
+    calls.push({identity,adopt}); return {sessions:2,workspaces:1}
+  }})}
+  const invoke=async (session,origin,confirmedUserId,method='POST')=> {
+    const req=Readable.from([Buffer.from(JSON.stringify({confirmedUserId}))])
+    req.method=method
+    req.headers={cookie:session.setCookie.split(';')[0],host:'127.0.0.1:3080',origin,'content-type':'application/json'}
+    let response
+    await service.legacyResources(req,{writeHead(status){response={status}},end(value){response.body=JSON.parse(value)}})
+    return response
+  }
+  assert.equal((await invoke(member,'http://127.0.0.1:3080','member')).status,403)
+  assert.equal((await invoke(admin,'https://other.test','original-owner')).status,403)
+  assert.equal((await invoke(admin,'http://127.0.0.1:3080','another-user')).status,400)
+  assert.equal(calls.length,0)
+  assert.equal((await invoke(admin,undefined,undefined,'GET')).status,200)
+  assert.equal(calls[0].adopt,false)
+  assert.equal((await invoke(admin,'http://127.0.0.1:3080','original-owner')).status,200)
+  assert.equal(calls[1].identity.userId,'original-owner')
+  assert.equal(calls[1].adopt,true)
+})

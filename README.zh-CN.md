@@ -80,7 +80,8 @@ sequenceDiagram
 - Cloudflare Worker、反向代理、DNS 或 TLS；
 - 组织到 Container 的路由；
 - Node 进程中的 Cloudflare Worker D1 binding（D1 通过 Cloudflare API 访问）；
-- 针对具体 Provider 的 Secret Vault 集成。
+- 针对具体 Provider 的 Secret Vault 集成；
+- 操作系统层面的文件系统或进程隔离，共享 DSH 进程仍保留宿主机的文件权限。
 
 插件负责 WorkOS 授权码交换、HttpOnly Session Cookie、登录跳转、退出登录和 DSH 路由保护。它从服务端 WorkOS 响应中提取可信身份：
 
@@ -109,12 +110,14 @@ sequenceDiagram
 - 通过 `ctx.workosAuth.identityFromRequest()` 和 `runWithRequestIdentity()` 访问已验证身份；
 - 组织和用户身份标准化；
 - Session 和 Workspace 的组织及用户归属；
-- 组织管理员只访问同一组织内的其他用户；
+- 所有角色（包括 owner/admin）只能访问属于自己的会话和工作区；
 - 用户级 API Key 存储以及根据 Session 所有者路由 Key；
 - 启用 WorkOS 时自动包装 Session/Workspace Remote Guard；
 - 为直接集成和测试提供纯 Session/Workspace Controller Guard；
 - API Key 描述接口不会返回 Secret 值；
-- 通过 DSH 的 `session/disposed` 事件清理 Session 归属；
+- 会话卸载、浏览器断开和服务重启不会删除所属用户记录；
+- 实时广播、工作区和会话数据流按连接所属用户过滤；
+- 显式恢复未登记的历史资源归属；
 - 未配置 D1 时使用本地 JSON 持久化；
 - 配置 D1 时通过 Cloudflare D1 REST API 持久化，并加密状态内容；
 - 面向策略和存储边界的纯 Node 测试。
@@ -160,6 +163,10 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 插件已为非回环浏览器启用经过认证的 Settings RPC；否则 DSH 会把设置镜像固定为内存模式并显示 `settings are unavailable in this browser`。升级后请重启 DSH，让新的客户端 bundle 生效。所有角色（包括 `owner`、`admin` 和 `member`）的会话与 Workspace 都只按当前 WorkOS 用户过滤，不能查看同组织其他成员的资源。
 
 会话和 Workspace 始终只对创建者可见。`adminRoles` 与 `adminCanManageKeys` 只控制角色是否可以管理其他用户的模型凭据；将 `adminRoles` 设置为空数组（表单中留空）即可取消这类跨用户凭据管理能力。
+
+升级后请重启 DSH，并刷新所有已打开的浏览器页面。插件会先清除浏览器保存的上次会话选择，再加载当前用户的资源；侧栏、新会话的工作区选择器和实时更新均使用服务端按用户过滤的数据。
+
+归属登记生效前创建的历史工作区和会话仍保存在磁盘中，但没有所属用户记录时会被隐藏。请先登录历史资源的原主人账号（例如葛培宇），打开「设置 > 插件 > WorkOS 租户 > 历史资源归属」，核对显示的账户和 WorkOS 用户 ID，勾选确认后点击「恢复历史工作区与会话」。此操作将所有未登记资源明确归属当前账号，不会改写已经登记的所属用户。只有确认这些未登记资源属于该账号时才执行；不能仅凭姓名或邮箱自动推断历史归属。
 
 member 在设置中只会看到「模型」。其添加的 Provider 和凭据会写入确定性的用户命名空间，其他用户无法看到；服务端也会拒绝跨用户读写。内置单例 Provider 的共享模型目录仍由组织统一维护，但 member 输入的 API Key 只对本人有效。
 

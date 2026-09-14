@@ -53,6 +53,10 @@ const zh = {
   loading: '正在加载配置…',
   loadFailed: '无法加载租户配置。',
   retry: '重试',
+  legacyTitle: '历史资源归属',
+  legacyCount: '未登记资源',
+  legacyConfirm: '将未登记的历史资源归属当前账户',
+  legacyRestore: '恢复历史工作区与会话',
 }
 
 const en = {
@@ -98,6 +102,10 @@ const en = {
   loading: 'Loading configuration…',
   loadFailed: 'Could not load tenant configuration.',
   retry: 'Retry',
+  legacyTitle: 'Historical resource ownership',
+  legacyCount: 'Unregistered resources',
+  legacyConfirm: 'Assign unregistered historical resources to this account',
+  legacyRestore: 'Restore historical Workspaces and sessions',
 }
 
 const styles = `
@@ -368,6 +376,53 @@ function SecretField({ label, configured, value, onChange, t }) {
   )
 }
 
+function LegacyResources({ t }) {
+  const account = useAccount()
+  const [counts, setCounts] = useState()
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState()
+  useEffect(() => {
+    let active = true
+    void fetch('/auth/legacy-resources', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) throw new Error(t('loadFailed'))
+        const result = await response.json()
+        if (active) setCounts(result)
+      }).catch(reason => { if (active) setError(reason.message) })
+    return () => { active = false }
+  }, [])
+  const restore = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const response = await fetch('/auth/legacy-resources', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmedUserId: account.identity.userId }),
+      })
+      if (!response.ok) throw new Error(t('loadFailed'))
+      window.location.reload()
+    } catch (reason) {
+      setError(reason.message)
+      setBusy(false)
+    }
+  }
+  return <section className="dsh-workos-settings__group">
+    <h4 className="dsh-workos-settings__group-title">{t('legacyTitle')}</h4>
+    {counts && <p>{t('legacyCount')}: Workspace {counts.workspaces} · Session {counts.sessions}</p>}
+    {account && <p>{account.user.name || account.user.email} ({account.identity.userId})</p>}
+    <label className="dsh-workos-settings__check">
+      <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
+      <span>{t('legacyConfirm')}</span>
+    </label>
+    <Button type="button" variant="outline" size="sm" disabled={!confirmed || busy || !account || !counts || !(counts.sessions + counts.workspaces)} onClick={restore}>
+      {t('legacyRestore')}
+    </Button>
+    {error && <p className="dsh-workos-settings__error">{error}</p>}
+  </section>
+}
+
 function TenantSettingsTab({ t }) {
   const [draft, setDraft] = useState()
   const [secrets, setSecrets] = useState({ apiKey: '', cookieSecret: '', encryptionKey: '', apiToken: '' })
@@ -459,6 +514,7 @@ function TenantSettingsTab({ t }) {
         <h3 className="dsh-workos-settings__title">{t('tenantTitle')}</h3>
         <p className="dsh-workos-settings__intro">{t('tenantIntro')}</p>
       </header>
+      <LegacyResources t={t} />
       <section className="dsh-workos-settings__group">
         <h4 className="dsh-workos-settings__group-title">{t('accessPolicy')}</h4>
         <div className="dsh-workos-settings__grid">

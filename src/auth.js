@@ -332,7 +332,7 @@ export class WorkOSAuthService extends Service {
           if (rejection !== undefined) return rejection
           const identity = authService.identityFromRequest(request)
           if (!identity) return 401
-          authService.identityContext.enterWith(identity)
+          authService.bindRequestIdentity(request, identity)
           return undefined
         }
         connectionPrototype.authorizeIndex = function (request, response) {
@@ -361,7 +361,7 @@ export class WorkOSAuthService extends Service {
         if (rejection !== undefined) return rejection
         const identity = this.identityFromRequest(request)
         if (!identity) return 401
-        this.identityContext.enterWith(identity)
+        this.bindRequestIdentity(request, identity)
         return undefined
       }
       view.authorizeIndex = (request, response) => {
@@ -407,9 +407,13 @@ export class WorkOSAuthService extends Service {
       path: '/auth/tenant-settings',
       handler: (req, res) => this.tenantSettings(req, res),
     })
+    register({ kind: 'exact', path: '/auth/resources', handler: (req, res) => this.resources(req, res) })
+    register({ kind: 'exact', path: '/auth/legacy-resources', handler: (req, res) => this.legacyResources(req, res) })
 
-    this.ctx.effect(() => {
+    this.ctx.effect(() => () => {
       for (const restore of patches.reverse()) restore()
+      for (const [socket, original] of this.identitySockets ?? []) socket.emit = original
+      this.identitySockets?.clear()
     }, 'workos-auth: restore connection guards')
   }
 
@@ -430,6 +434,57 @@ export class WorkOSAuthService extends Service {
 
   currentIdentity() {
     return this.identityContext.getStore()
+  }
+
+  bindRequestIdentity(request, identity) {
+    this.identityContext.enterWith(identity)
+    const socket = request.socket
+    if (request.headers?.upgrade?.toLowerCase() !== 'websocket' || !socket) return
+    this.identitySockets ??= new Map()
+    if (this.identitySockets.has(socket)) return
+    const original = socket.emit
+    const auth = this
+    this.identitySockets.set(socket, original)
+    // Socket callbacks otherwise run in the server's original async context,
+    // rather than the authenticated HTTP upgrade's context.
+    socket.emit = function (...args) {
+      return auth.identityContext.run(auth.identityFromRequest(request), () => original.apply(this, args))
+    }
+    socket.once('close', () => { this.identitySockets.delete(socket) })
+  }
+
+  resources(req, res) {
+    const identity = this.identityFromRequest(req)
+    if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' })
+    const tenant = this.ctx.get('tenantPolicy')
+    if (!tenant?.runtimeGuardsInstalled) return json(res, 503, { error: 'TENANT_POLICY_NOT_READY' })
+    return json(res, 200, {
+      identity,
+      sessions: tenant.listOwnedSessions(identity).map(record => record.id),
+      workspaces: tenant.listOwnedWorkspaces(identity).map(record => record.id),
+    })
+  }
+
+  async legacyResources(req, res) {
+    const identity = this.identityFromRequest(req)
+    if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    if (!isConfigurationAdmin(identity)) return json(res, 403, { error: 'ADMIN_REQUIRED' })
+    if (!['GET', 'POST'].includes(req.method)) return json(res, 405, { error: 'METHOD_NOT_ALLOWED' })
+    try {
+      if (req.method === 'POST') {
+        const origin = req.headers.origin
+        const expected = new URL(this.requestRedirectUri(req)).origin
+        if (origin !== expected) return json(res, 403, { error: 'ORIGIN_FORBIDDEN' })
+        const body = await readJson(req)
+        if (body.confirmedUserId !== identity.userId) return json(res, 400, { error: 'OWNER_CONFIRMATION_REQUIRED' })
+      }
+      const tenant = this.ctx.get('tenantPolicy')
+      if (!tenant?.runtimeGuardsInstalled) return json(res, 503, { error: 'TENANT_POLICY_NOT_READY' })
+      return json(res, 200, await tenant.legacyResources(identity, req.method === 'POST'))
+    } catch (error) {
+      return json(res, error.status ?? 500, { error: error.code ?? 'LEGACY_MIGRATION_FAILED' })
+    }
   }
 
   runWithRequestIdentity(request, callback) {

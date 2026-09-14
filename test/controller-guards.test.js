@@ -7,7 +7,7 @@ function testService(identity) {
   const service = Object.create(TenantPolicyService.prototype)
   service.policy = new TenantPolicy()
   service.auth = { currentIdentity: () => identity }
-  service.ctx = { effect: () => {} }
+  service.ctx = { effect: setup => setup(), get: () => ({ list: async () => [{ header: { id: 'legacy-session' } }, { header: { id: 'session-bob' } }] }) }
   return service
 }
 
@@ -34,6 +34,9 @@ test('automatic Session controller guard claims and filters resources', async ()
   assert.deepEqual((await controller.list({})).items, [{ sessionId: 'session-alice' }])
   assert.deepEqual((await controller.search({ query: 'x' })).items, [{ sessionId: 'session-alice' }])
   assert.throws(() => controller.prompt({ sessionId: 'session-bob' }), /another user/)
+  await assert.rejects(controller.create({sessionId: 'session-bob'}), /another user/)
+  await assert.rejects(controller.create({sessionId: 'legacy-session'}), /no tenant owner/)
+  await controller.create({sessionId: 'new-session'})
 })
 
 test('automatic Workspace controller guard claims and checks resources', async () => {
@@ -52,6 +55,17 @@ test('automatic Workspace controller guard claims and checks resources', async (
   await controller.create({ path: '/tmp/alice' })
   assert.deepEqual(service.policy.assertWorkspaceAccess(alice, 'workspace-alice').userId, 'alice')
   assert.throws(() => controller.rename({ workspaceId: 'workspace-bob', title: 'x' }), /another user/)
+})
+
+test('resolving an existing workspace cannot claim its historical ownership', async () => {
+  const service = testService({organizationId: 'org-1', userId: 'alice', role: 'owner'})
+  class WorkspaceController {
+    async create() { return {workspace: {workspaceId:'legacy-workspace'}, created:false} }
+  }
+  const controller = new WorkspaceController()
+  service.patchWorkspaceController(controller)
+  await assert.rejects(controller.create({path:'/tmp/legacy'}), /no tenant owner/)
+  assert.equal(service.policy.workspaces.has('legacy-workspace'),false)
 })
 
 test('stream guards retain the identity captured when the stream opens', async () => {
