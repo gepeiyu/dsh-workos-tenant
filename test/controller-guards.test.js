@@ -82,12 +82,14 @@ test('configured workspace root guards workspace, session, picker, and file path
   await assert.rejects(sessions.prompt({sessionId:'outside-session'}), /outside/)
   assert.throws(() => sessions.create({sessionId:'new-outside',cwd:outside}), /outside/)
   await sessions.create({sessionId:'new-inside',cwd:join(root,'new-project')})
+  await sessions.create({sessionId:'new-picker',cwd:'/.dsh-workspace/project'})
 
   class WorkspaceController { create(request) { return {workspace:{workspaceId:'created-workspace',path:request.path},created:true} } }
   const workspaceController = new WorkspaceController()
   service.patchWorkspaceController(workspaceController)
   assert.throws(() => workspaceController.create({path:outside}), /outside/)
   await workspaceController.create({path:join(root,'created')})
+  await workspaceController.create({path:'/.dsh-workspace/project'})
 
   class DirectoryPickerController {
     list(path) { return {path,home:base,crumbs:[{path:base},{path:root}],entries:[{path:project},{path:outside}]} }
@@ -97,12 +99,20 @@ test('configured workspace root guards workspace, session, picker, and file path
   const picker = new DirectoryPickerController()
   service.patchDirectoryPicker(picker)
   const listing = await picker.list()
-  assert.equal(listing.path, root)
-  assert.equal(listing.home, root)
-  assert.deepEqual(listing.crumbs,[{path:root}])
-  assert.deepEqual(listing.entries,[{path:project}])
-  assert.equal(await picker.createDirectory(root,'child'), join(root,'child'))
+  assert.equal(listing.path, '/.dsh-workspace')
+  assert.equal(listing.home, '/.dsh-workspace')
+  assert.deepEqual(listing.crumbs,[{path:'/.dsh-workspace'}])
+  assert.deepEqual(listing.entries,[{path:'/.dsh-workspace/project'}])
+  assert.equal(await picker.createDirectory('/.dsh-workspace','child'), '/.dsh-workspace/child')
+  assert.equal((await picker.list('/.dsh-workspace/project')).path, '/.dsh-workspace/project')
   await assert.rejects(picker.pick(), /outside/)
+
+  class PickerWithInsidePath {
+    pick() { return Promise.resolve(project) }
+  }
+  const insidePicker = new PickerWithInsidePath()
+  service.patchDirectoryPicker(insidePicker)
+  assert.equal(await insidePicker.pick(), '/.dsh-workspace/project')
 
   class WorkspaceFiles { read(scope, path) { return join(scope.workspaceRoot,path) } }
   const files = new WorkspaceFiles()

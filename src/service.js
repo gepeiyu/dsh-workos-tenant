@@ -1,6 +1,6 @@
 import { Service } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { resolve } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
 import { SessionKeyRouter, TenantError, TenantPolicy } from './policy.js'
 import { WorkOSAuthService, resolveWorkOSConfig } from './auth.js'
 import { createTenantStorage, resolveTenantStorageConfig } from './storage.js'
@@ -16,6 +16,8 @@ import {
   rpcForbidden,
   tenantCredentialRef,
 } from './model-scope.js'
+
+const PICKER_ROOT = '/.dsh-workspace'
 
 export class TenantPolicyService extends Service {
   static inject = ['sessionController', 'workspaceController']
@@ -147,7 +149,24 @@ export class TenantPolicyService extends Service {
   assertWorkspacePath(identity, path, options) {
     if (!this.config?.workspace?.root) return path
     if (typeof path !== 'string' || !path) throw new TenantError('WORKSPACE_PATH_REQUIRED', 'A Workspace path is required', 400)
+    if (path === PICKER_ROOT || path.startsWith(`${PICKER_ROOT}/`)) path = this.resolvePickerPath(identity, path)
     return assertWorkspacePath(this.config, identity, path, options)
+  }
+
+  resolvePickerPath(identity, path) {
+    if (typeof path !== 'string' || !path) throw new TenantError('WORKSPACE_PATH_REQUIRED', 'A Workspace path is required', 400)
+    if (path !== PICKER_ROOT && !path.startsWith(`${PICKER_ROOT}/`)) {
+      return assertWorkspacePath(this.config, identity, path, { ensureRoot: true })
+    }
+    const relativePath = path.slice(PICKER_ROOT.length).replace(/^\/+/, '')
+    return assertWorkspacePath(this.config, identity, relativePath || '.', { ensureRoot: true })
+  }
+
+  pickerPath(identity, path) {
+    const root = this.userWorkspaceRoot(identity, true)
+    const actual = assertWorkspacePath(this.config, identity, path)
+    const child = relative(root, actual)
+    return child ? `${PICKER_ROOT}/${child.split(sep).join('/')}` : PICKER_ROOT
   }
 
   assertWorkspaceLocation(identity, workspaceId) {
@@ -293,26 +312,33 @@ export class TenantPolicyService extends Service {
         const root = tenant.userWorkspaceRoot(identity, true)
         const target = path === undefined
           ? root
-          : tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+          : tenant.resolvePickerPath(identity, path)
         return Promise.resolve(original.call(this, target, ...args)).then(value => {
           const allowed = row => {
             try { tenant.assertWorkspacePath(identity, row.path); return true } catch { return false }
           }
-          return { ...value, home: root, crumbs: value.crumbs.filter(allowed), entries: value.entries.filter(allowed) }
+          const display = row => row?.path ? { ...row, path: tenant.pickerPath(identity, row.path) } : row
+          return {
+            ...value,
+            path: value.path ? tenant.pickerPath(identity, value.path) : value.path,
+            home: PICKER_ROOT,
+            crumbs: value.crumbs.filter(allowed).map(display),
+            entries: value.entries.filter(allowed).map(display),
+          }
         })
       },
       createDirectory: original => function (path, name, ...args) {
         if (!tenant.config?.workspace?.root) return original.call(this, path, name, ...args)
         const identity = tenant.currentIdentity()
-        const parent = tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+        const parent = tenant.resolvePickerPath(identity, path)
         tenant.assertWorkspacePath(identity, resolve(parent, name))
-        return original.call(this, parent, name, ...args)
+        return Promise.resolve(original.call(this, parent, name, ...args)).then(value => value === null ? null : tenant.pickerPath(identity, value))
       },
       pick: original => async function (...args) {
         if (!tenant.config?.workspace?.root) return original.call(this, ...args)
         const identity = tenant.currentIdentity()
         const path = await original.call(this, ...args)
-        return path === null ? null : tenant.assertWorkspacePath(identity, path, { ensureRoot: true })
+        return path === null ? null : tenant.pickerPath(identity, tenant.assertWorkspacePath(identity, path, { ensureRoot: true }))
       },
     })
   }
