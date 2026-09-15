@@ -31,10 +31,6 @@ export class TenantPolicyService extends Service {
     workspace: Schema.object({
       root: Schema.string().default('').description('Base directory for organization/user Workspace roots'),
     }).default({}),
-    branding: Schema.object({
-      logoUrl: Schema.string().default('').description('Optional tenant logo URL for the web client'),
-      name: Schema.string().default('').description('Optional tenant brand name'),
-    }).default({}),
     workos: Schema.any().hidden(),
     storage: Schema.object({
       mode: Schema.union([Schema.const('local'), Schema.const('d1')]).default('local'),

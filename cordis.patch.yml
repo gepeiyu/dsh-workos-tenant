@@ -16,9 +16,6 @@
         workspace: {}
           # When set, each user is restricted to root/organizationId/userId.
           # root: /srv/dsh/workspaces
-        branding: {}
-          # logoUrl: https://example.com/logo.png
-          # name: Example Harness
         storage:
           mode: local
           # Set mode to d1 in plugin settings and keep credentials in env:

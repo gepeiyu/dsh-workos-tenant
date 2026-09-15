@@ -13,9 +13,6 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 
 const CONFIG_VERSION = 1
 
-export const DEFAULT_BRAND_LOGO_URL = '/auth/branding/logo.png'
-export const DEFAULT_BRAND_NAME = 'RetailHarness'
-
 export class TenantConfigError extends Error {
   constructor(message, status = 400, options = {}) {
     super(message, options)
@@ -80,13 +77,6 @@ function requiredUrl(value, label) {
   return url.toString()
 }
 
-function optionalImageUrl(value, label) {
-  if (value === undefined || value === null || value === '') return undefined
-  const text = requiredString(value, label, { max: 4096 })
-  if (text.startsWith('/') && !text.startsWith('//')) return text
-  return requiredUrl(text, label)
-}
-
 function secret(input, fallback, label, min = 1) {
   if (input === undefined || input === null || input === '') {
     return optionalString(fallback, label, 8192)
@@ -108,9 +98,8 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
   const storage = input.storage
   const network = input.network ?? {}
   const workspace = input.workspace ?? {}
-  const branding = input.branding ?? {}
-  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage) || !isRecord(network) || !isRecord(workspace) || !isRecord(branding)) {
-    throw new TenantConfigError('policy, workos, storage, network, workspace, and branding sections must be objects')
+  if (!isRecord(policy) || !isRecord(workos) || !isRecord(storage) || !isRecord(network) || !isRecord(workspace)) {
+    throw new TenantConfigError('policy, workos, storage, network, and workspace sections must be objects')
   }
 
   const mode = requiredString(storage.mode, 'storage mode', { max: 16 })
@@ -130,14 +119,6 @@ export function normalizeManagedTenantConfig(input, fallback = {}) {
       root: workspace.root === undefined
         ? optionalString(fallback.workspace?.root, 'workspace root')
         : optionalString(workspace.root, 'workspace root'),
-    },
-    branding: {
-      logoUrl: branding.logoUrl === undefined
-        ? optionalImageUrl(fallback.branding?.logoUrl, 'brand logo URL')
-        : optionalImageUrl(branding.logoUrl, 'brand logo URL'),
-      name: branding.name === undefined
-        ? optionalString(fallback.branding?.name, 'brand name', 120)
-        : optionalString(branding.name, 'brand name', 120),
     },
     workos: {
       clientId: requiredString(workos.clientId, 'WorkOS client ID'),
@@ -205,10 +186,6 @@ export function publicManagedTenantConfig(config) {
     },
     workspace: {
       root: config.workspace?.root ?? '',
-    },
-    branding: {
-      logoUrl: config.branding?.logoUrl ?? DEFAULT_BRAND_LOGO_URL,
-      name: config.branding?.name ?? DEFAULT_BRAND_NAME,
     },
     workos: {
       clientId: config.workos?.clientId ?? '',

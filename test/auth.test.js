@@ -242,21 +242,7 @@ test('successful callback preserves the new session cookie', async () => {
       id: 'org_acme',
       name: 'Acme Corporation',
     },
-    branding: {
-      logoUrl: '/auth/branding/logo.png',
-      name: 'RetailHarness',
-    },
   })
-
-  let logoResponse
-  service.brandingLogo({ method: 'GET' }, {
-    writeHead(status, headers) { logoResponse = { status, headers } },
-    end(body) { logoResponse.body = body },
-  })
-  assert.equal(logoResponse.status, 200)
-  assert.equal(logoResponse.headers['content-type'], 'image/png')
-  assert.ok(Buffer.isBuffer(logoResponse.body))
-  assert.ok(logoResponse.body.length > 1000)
 
   let logoutResponse
   service.logout({ headers: authenticatedHeaders }, {

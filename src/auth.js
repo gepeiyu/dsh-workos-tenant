@@ -4,13 +4,11 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { Service } from '@deepseek-ai/cordis'
 import { normalizeIdentity } from './policy.js'
 import {
   normalizeManagedTenantConfig,
   publicManagedTenantConfig,
-  DEFAULT_BRAND_LOGO_URL,
   TenantConfigError,
 } from './config.js'
 import { isConfigurationAdmin } from './model-scope.js'
@@ -19,7 +17,6 @@ const DEFAULT_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 const STATE_MAX_AGE_SECONDS = 10 * 60
 const COOKIE_NAME = 'dsh-workos-session'
 const STATE_COOKIE_NAME = 'dsh-workos-state'
-const DEFAULT_BRAND_LOGO = readFileSync(new URL('../assets/SMART_LOGO3.png', import.meta.url))
 
 function randomToken(bytes = 32) {
   return randomBytes(bytes).toString('base64url')
@@ -405,11 +402,6 @@ export class WorkOSAuthService extends Service {
       path: '/auth/me',
       handler: (req, res) => this.me(req, res),
     })
-    register({
-      kind: 'exact',
-      path: DEFAULT_BRAND_LOGO_URL,
-      handler: (req, res) => this.brandingLogo(req, res),
-    })
     if (this.management) register({
       kind: 'exact',
       path: '/auth/tenant-settings',
@@ -632,23 +624,11 @@ export class WorkOSAuthService extends Service {
   me(req, res) {
     const session = this.sessions.sessionFromHeaders(req.headers)
     if (!session) return json(res, 401, { error: 'AUTH_REQUIRED' })
-    const branding = publicManagedTenantConfig(this.management?.effectiveConfig ?? {}).branding
-    const hasBranding = Boolean(branding?.logoUrl || branding?.name)
     return json(res, 200, {
       identity: session.identity,
       user: session.account.user,
       organization: session.account.organization,
-      ...(hasBranding ? { branding } : {}),
     })
-  }
-
-  brandingLogo(req, res) {
-    if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { allow: 'GET' })
-    res.writeHead(200, {
-      'content-type': 'image/png',
-      'cache-control': 'public, max-age=3600',
-    })
-    res.end(DEFAULT_BRAND_LOGO)
   }
 
   async tenantSettings(req, res) {
