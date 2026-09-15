@@ -307,13 +307,13 @@ function BrandName() {
 function installBrandSlots(ctx) {
   const disposers = [
     ctx.slots.inject('sidebar.brand.mark', () => ctx.slots.register(
-      { name: 'dsh-workos-brand-mark', priority: -100 }, BrandMark,
+      { name: 'sidebar.brand.mark' }, BrandMark,
     )),
     ctx.slots.inject('sidebar.brand.name', () => ctx.slots.register(
-      { name: 'dsh-workos-brand-name', priority: -100 }, BrandName,
+      { name: 'sidebar.brand.name' }, BrandName,
     )),
     ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
-      { name: 'dsh-workos-hero-brand-mark', priority: -100 }, BrandMark,
+      { name: 'conversation.hero.brand.mark' }, BrandMark,
     )),
   ]
   return () => { for (const dispose of disposers) dispose() }
