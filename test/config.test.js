@@ -97,3 +97,10 @@ test('branding settings expose only validated public values', () => {
   }), /brand logo URL must use http or https/)
   assert.equal(normalizeManagedTenantConfig(complete).branding.logoUrl, undefined)
 })
+
+test('branding defaults use the built-in RetailHarness identity', () => {
+  assert.deepEqual(publicManagedTenantConfig(complete).branding, {
+    logoUrl: '/auth/branding/logo.png',
+    name: 'RetailHarness',
+  })
+})

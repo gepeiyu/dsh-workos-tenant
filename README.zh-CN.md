@@ -154,7 +154,7 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 `WORKOS_ORGANIZATION_ID` 会把这个 DSH 实例绑定到一个 WorkOS 组织。`WORKOS_COOKIE_SECRET` 用于签名本地 HttpOnly Session Cookie，不会发送给 WorkOS 或浏览器。
 
-登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理品牌、网络访问、工作区路径、连接和存储。品牌设置支持 HTTPS 图片地址（或同源根路径）和可选的品牌名称；图片会用于左侧栏、新会话页面和浏览器标签图标。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。首次保存并成功重启前，请保留启动所需的环境变量。
+登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理品牌、网络访问、工作区路径、连接和存储。插件内置默认品牌为这张 SMART Logo，名称为 `RetailHarness`。品牌设置支持 HTTPS 图片地址（或同源根路径）和自定义品牌名称；图片会用于左侧栏、新会话页面和浏览器标签图标。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。首次保存并成功重启前，请保留启动所需的环境变量。
 
 「允许同一网络中的其他设备访问 DSH」默认关闭。开启后保存并重启，Web 服务会监听 `0.0.0.0`，DSH 启动日志会打印类似 `http://172.20.5.172:3080/?token=...` 的局域网地址。浏览器 Host/Origin 校验会信任检测到的局域网 IPv4 地址，WorkOS 登录仍然有效。请使用系统或网络防火墙限制端口访问范围。
 

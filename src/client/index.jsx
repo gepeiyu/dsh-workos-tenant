@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  BrandWordmark,
   Button,
-  FishLogo,
   IconChevronUpOutline14,
   IconUserOutline16,
   Menu,
@@ -74,7 +72,7 @@ const en = {
   logoUrl: 'Logo URL',
   logoUrlHint: 'Use an HTTPS image URL or a same-origin root path. It is used in the sidebar, New Session view, and browser tab icon.',
   brandName: 'Brand name',
-  brandNameHint: 'Leave blank to use the default DSH brand name.',
+  brandNameHint: 'Leave blank to use the default RetailHarness name.',
   network: 'Network access',
   allowNetworkAccess: 'Allow other devices on the network to access DSH',
   allowNetworkAccessHint: 'DSH will listen on all network interfaces. Restart DSH after saving and restrict access with your firewall.',
@@ -236,6 +234,8 @@ let accountSnapshot
 let accountRequest
 const accountListeners = new Set()
 const BRANDING_LINK_SELECTOR = 'link[data-dsh-workos-branding="favicon"]'
+const DEFAULT_BRAND_LOGO_URL = '/auth/branding/logo.png'
+const DEFAULT_BRAND_NAME = 'RetailHarness'
 
 function applyBrandingFavicon(branding) {
   const current = document.head.querySelector(BRANDING_LINK_SELECTOR)
@@ -294,15 +294,14 @@ function useAccount() {
 
 function BrandMark({ size, className }) {
   const account = useAccount()
-  const logoUrl = account?.branding?.logoUrl
-  if (!logoUrl) return <FishLogo size={size} />
+  const logoUrl = account?.branding?.logoUrl || DEFAULT_BRAND_LOGO_URL
   return <img src={logoUrl} alt="" width={size} height={size} className={className} style={{ objectFit: 'contain', display: 'block' }} />
 }
 
 function BrandName() {
   const account = useAccount()
-  const name = account?.branding?.name
-  return name ? <span>{name}</span> : <BrandWordmark includeMark={false} />
+  const name = account?.branding?.name || DEFAULT_BRAND_NAME
+  return <span>{name}</span>
 }
 
 function installBrandSlots(ctx) {

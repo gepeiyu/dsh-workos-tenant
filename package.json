@@ -1,6 +1,6 @@
 {
   "name": "dsh-workos-tenant",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "WorkOS-authenticated organization tenant plugin for DeepSeek Harness",
   "type": "module",
   "license": "MIT",
@@ -21,6 +21,7 @@
   },
   "files": [
     "src",
+    "assets",
     "lib/client.js",
     "cordis.patch.yml",
     "README.md"

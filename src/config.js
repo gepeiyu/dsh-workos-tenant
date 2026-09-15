@@ -13,6 +13,9 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 
 const CONFIG_VERSION = 1
 
+export const DEFAULT_BRAND_LOGO_URL = '/auth/branding/logo.png'
+export const DEFAULT_BRAND_NAME = 'RetailHarness'
+
 export class TenantConfigError extends Error {
   constructor(message, status = 400, options = {}) {
     super(message, options)
@@ -204,8 +207,8 @@ export function publicManagedTenantConfig(config) {
       root: config.workspace?.root ?? '',
     },
     branding: {
-      logoUrl: config.branding?.logoUrl ?? '',
-      name: config.branding?.name ?? '',
+      logoUrl: config.branding?.logoUrl ?? DEFAULT_BRAND_LOGO_URL,
+      name: config.branding?.name ?? DEFAULT_BRAND_NAME,
     },
     workos: {
       clientId: config.workos?.clientId ?? '',
