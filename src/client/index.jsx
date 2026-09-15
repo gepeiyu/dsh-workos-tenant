@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
+  BrandWordmark,
   Button,
+  FishLogo,
   IconChevronUpOutline14,
   IconUserOutline16,
   Menu,
@@ -18,7 +20,12 @@ const zh = {
   role: '角色',
   tenantTab: 'WorkOS 租户',
   tenantTitle: 'WorkOS 租户配置',
-  tenantIntro: '管理登录、网络访问、工作区路径和租户状态存储。连接或存储变更将在重启 DSH 后生效。',
+  tenantIntro: '管理登录、品牌、网络访问、工作区路径和租户状态存储。连接或存储变更将在重启 DSH 后生效。',
+  branding: '品牌设置',
+  logoUrl: 'Logo 地址',
+  logoUrlHint: '可填写 HTTPS 图片地址或同源根路径；同时用于侧栏、新会话和浏览器标签图标。',
+  brandName: '品牌名称',
+  brandNameHint: '留空时使用 DSH 默认品牌名称。',
   network: '网络访问',
   allowNetworkAccess: '允许同一网络中的其他设备访问 DSH',
   allowNetworkAccessHint: '开启后 DSH 会监听所有网卡。保存后需要重启 DSH，并确认防火墙只允许可信网络。',
@@ -62,7 +69,12 @@ const en = {
   role: 'Role',
   tenantTab: 'WorkOS tenant',
   tenantTitle: 'WorkOS tenant configuration',
-  tenantIntro: 'Manage sign-in, network access, workspace paths, and tenant-state storage. Connection and storage changes apply after restarting DSH.',
+  tenantIntro: 'Manage sign-in, branding, network access, workspace paths, and tenant-state storage. Connection and storage changes apply after restarting DSH.',
+  branding: 'Branding',
+  logoUrl: 'Logo URL',
+  logoUrlHint: 'Use an HTTPS image URL or a same-origin root path. It is used in the sidebar, New Session view, and browser tab icon.',
+  brandName: 'Brand name',
+  brandNameHint: 'Leave blank to use the default DSH brand name.',
   network: 'Network access',
   allowNetworkAccess: 'Allow other devices on the network to access DSH',
   allowNetworkAccessHint: 'DSH will listen on all network interfaces. Restart DSH after saving and restrict access with your firewall.',
@@ -223,6 +235,20 @@ html[data-dsh-workos-member] [role="dialog"]:has(> nav) > div > :first-child > :
 let accountSnapshot
 let accountRequest
 const accountListeners = new Set()
+const BRANDING_LINK_SELECTOR = 'link[data-dsh-workos-branding="favicon"]'
+
+function applyBrandingFavicon(branding) {
+  const current = document.head.querySelector(BRANDING_LINK_SELECTOR)
+  if (!branding?.logoUrl) {
+    current?.remove()
+    return
+  }
+  const link = current ?? document.createElement('link')
+  link.rel = 'icon'
+  link.dataset.dshWorkosBranding = 'favicon'
+  link.href = branding.logoUrl
+  if (!current) document.head.appendChild(link)
+}
 
 function loadAccount() {
   if (accountSnapshot) return Promise.resolve(accountSnapshot)
@@ -233,6 +259,7 @@ function loadAccount() {
     .then(value => {
       if (value?.user && value?.organization) {
         accountSnapshot = value
+        applyBrandingFavicon(value.branding)
         for (const listener of accountListeners) listener()
       }
       return accountSnapshot
@@ -254,10 +281,43 @@ function useAccount() {
   const [account, setAccount] = useState(accountSnapshot)
   useEffect(() => {
     let active = true
+    const update = () => { if (active) setAccount(accountSnapshot) }
+    accountListeners.add(update)
     void loadAccount().then(value => { if (active) setAccount(value) })
-    return () => { active = false }
+    return () => {
+      active = false
+      accountListeners.delete(update)
+    }
   }, [])
   return account
+}
+
+function BrandMark({ size, className }) {
+  const account = useAccount()
+  const logoUrl = account?.branding?.logoUrl
+  if (!logoUrl) return <FishLogo size={size} />
+  return <img src={logoUrl} alt="" width={size} height={size} className={className} style={{ objectFit: 'contain', display: 'block' }} />
+}
+
+function BrandName() {
+  const account = useAccount()
+  const name = account?.branding?.name
+  return name ? <span>{name}</span> : <BrandWordmark includeMark={false} />
+}
+
+function installBrandSlots(ctx) {
+  const disposers = [
+    ctx.slots.inject('sidebar.brand.mark', () => ctx.slots.register(
+      { name: 'dsh-workos-brand-mark', priority: -100 }, BrandMark,
+    )),
+    ctx.slots.inject('sidebar.brand.name', () => ctx.slots.register(
+      { name: 'dsh-workos-brand-name', priority: -100 }, BrandName,
+    )),
+    ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
+      { name: 'dsh-workos-hero-brand-mark', priority: -100 }, BrandMark,
+    )),
+  ]
+  return () => { for (const dispose of disposers) dispose() }
 }
 
 function isAdmin(account) {
@@ -406,6 +466,7 @@ function TenantSettingsTab({ t }) {
       policy: draft.policy,
       network: draft.network,
       workspace: draft.workspace,
+      branding: draft.branding ?? {},
       workos: {
         ...draft.workos,
         apiKey: secrets.apiKey,
@@ -433,6 +494,11 @@ function TenantSettingsTab({ t }) {
       const value = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(value.detail || value.error || t('loadFailed'))
       setDraft(value.config)
+      if (accountSnapshot) {
+        accountSnapshot = { ...accountSnapshot, branding: value.config.branding }
+        applyBrandingFavicon(value.config.branding)
+        for (const listener of accountListeners) listener()
+      }
       setSecrets({ apiKey: '', cookieSecret: '', encryptionKey: '', apiToken: '' })
       setStatus('saved')
     }).catch(reason => {
@@ -457,6 +523,21 @@ function TenantSettingsTab({ t }) {
         <h3 className="dsh-workos-settings__title">{t('tenantTitle')}</h3>
         <p className="dsh-workos-settings__intro">{t('tenantIntro')}</p>
       </header>
+      <section className="dsh-workos-settings__group">
+        <h4 className="dsh-workos-settings__group-title">{t('branding')}</h4>
+        <div className="dsh-workos-settings__grid">
+          <Field label={t('logoUrl')} hint={t('logoUrlHint')} wide>
+            <input className="dsh-workos-settings__input" value={draft.branding?.logoUrl ?? ''} onChange={event => {
+              change(['branding', 'logoUrl'], event.target.value)
+            }} />
+          </Field>
+          <Field label={t('brandName')} hint={t('brandNameHint')} wide>
+            <input className="dsh-workos-settings__input" value={draft.branding?.name ?? ''} onChange={event => {
+              change(['branding', 'name'], event.target.value)
+            }} />
+          </Field>
+        </div>
+      </section>
       <section className="dsh-workos-settings__group">
         <h4 className="dsh-workos-settings__group-title">{t('workspaceScope')}</h4>
         <Field label={t('workspaceRoot')} hint={t('workspaceRootHint')} wide>
@@ -599,6 +680,7 @@ export function apply(ctx) {
   unpinRemoteSettingsScopes()
   ctx.effect(() => installSessionVisibility(ctx), 'workos-account: session visibility')
   ctx.effect(installStyles, 'workos-account: styles')
+  ctx.effect(() => installBrandSlots(ctx), 'workos-account: branding')
   ctx.effect(() => installSettingsVisibility(ctx), 'workos-account: settings visibility')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workos-account: dictionaries')
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

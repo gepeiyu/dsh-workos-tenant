@@ -101,7 +101,7 @@ sequenceDiagram
 - WorkOS 启用时提供 `ctx.tenantPolicy` 和 `ctx.workosAuth` Cordis 服务；
 - WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
 - 登录后在侧栏底部显示用户名或邮箱及组织名，并提供退出登录菜单；
-- 在 DSH「设置 > 插件 > WorkOS 租户」提供网络访问、工作区路径、连接和存储配置；
+- 在 DSH「设置 > 插件 > WorkOS 租户」提供品牌、网络访问、工作区路径、连接和存储配置；
 - member 只能管理自己的「模型」，租户配置页仅管理员可见；
 - Provider 和凭据按用户隔离，未加用户前缀的共享 Provider 可供组织内使用；
 - 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
@@ -154,7 +154,7 @@ export WORKOS_COOKIE_SECRET="至少32个随机字符"
 
 `WORKOS_ORGANIZATION_ID` 会把这个 DSH 实例绑定到一个 WorkOS 组织。`WORKOS_COOKIE_SECRET` 用于签名本地 HttpOnly Session Cookie，不会发送给 WorkOS 或浏览器。
 
-登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理网络访问、工作区路径、连接和存储。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。首次保存并成功重启前，请保留启动所需的环境变量。
+登录后，owner 或 admin 可以打开「设置 > 插件 > WorkOS 租户」管理品牌、网络访问、工作区路径、连接和存储。品牌设置支持 HTTPS 图片地址（或同源根路径）和可选的品牌名称；图片会用于左侧栏、新会话页面和浏览器标签图标。表单中的 Secret 只写不读，会加密保存到 `$DSH_HOME` 下的租户配置文件（`workos-tenant-config.json` 及其私钥文件）。首次保存并成功重启前，请保留启动所需的环境变量。
 
 「允许同一网络中的其他设备访问 DSH」默认关闭。开启后保存并重启，Web 服务会监听 `0.0.0.0`，DSH 启动日志会打印类似 `http://172.20.5.172:3080/?token=...` 的局域网地址。浏览器 Host/Origin 校验会信任检测到的局域网 IPv4 地址，WorkOS 登录仍然有效。请使用系统或网络防火墙限制端口访问范围。
 

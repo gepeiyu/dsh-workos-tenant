@@ -101,7 +101,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Cordis services exposed as `ctx.tenantPolicy` and `ctx.workosAuth` when WorkOS is enabled.
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
 - Signed-in user or email and organization details in the sidebar, with a sign-out menu.
-- WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant for network access, workspace paths, connection, and storage.
+- WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant for branding, network access, workspace paths, connection, and storage.
 - Members can manage only their own Models page; tenant settings remain administrator-only.
 - Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
@@ -154,7 +154,7 @@ export WORKOS_COOKIE_SECRET="at-least-32-random-characters"
 
 `WORKOS_ORGANIZATION_ID` binds this DSH instance to exactly one WorkOS organization. `WORKOS_COOKIE_SECRET` signs the local HttpOnly session cookie. It is not sent to WorkOS or the browser.
 
-After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage network access, workspace paths, the connection, and storage. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
+After signing in, an owner or admin can open **Settings > Plugins > WorkOS tenant** and manage branding, network access, workspace paths, the connection, and storage. The branding section accepts an HTTPS image URL (or a same-origin root path) and an optional brand name; the image is used in the sidebar, New Session view, and browser tab icon. Secrets are write-only in the form and are stored in an encrypted tenant configuration file under `$DSH_HOME` (`workos-tenant-config.json` plus its private key file). Keep the initial environment variables until the managed configuration has been saved and a restart has succeeded.
 
 The **Allow other devices on the network to access DSH** switch is off by default. Turn it on to bind the Web server to `0.0.0.0`; after restarting, DSH prints a LAN URL such as `http://172.20.5.172:3080/?token=...`. The browser Host/Origin fence trusts the detected LAN IPv4 addresses, while WorkOS authentication still applies. Restrict the port with the machine or network firewall.
 

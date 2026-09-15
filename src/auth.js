@@ -624,10 +624,13 @@ export class WorkOSAuthService extends Service {
   me(req, res) {
     const session = this.sessions.sessionFromHeaders(req.headers)
     if (!session) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    const branding = publicManagedTenantConfig(this.management?.effectiveConfig ?? {}).branding
+    const hasBranding = Boolean(branding?.logoUrl || branding?.name)
     return json(res, 200, {
       identity: session.identity,
       user: session.account.user,
       organization: session.account.organization,
+      ...(hasBranding ? { branding } : {}),
     })
   }
 

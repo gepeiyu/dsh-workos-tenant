@@ -77,3 +77,23 @@ test('workspace root is public, optional, and must be absolute', () => {
   assert.throws(() => normalizeManagedTenantConfig({ ...complete, workspace: { root: 'relative/path' } }), /absolute path/)
   assert.equal(normalizeManagedTenantConfig(complete).workspace.root, undefined)
 })
+
+test('branding settings expose only validated public values', () => {
+  const configured = normalizeManagedTenantConfig({
+    ...complete,
+    branding: {
+      logoUrl: 'https://example.com/logo.svg',
+      name: 'Example Harness',
+    },
+  })
+  assert.deepEqual(configured.branding, {
+    logoUrl: 'https://example.com/logo.svg',
+    name: 'Example Harness',
+  })
+  assert.deepEqual(publicManagedTenantConfig(configured).branding, configured.branding)
+  assert.throws(() => normalizeManagedTenantConfig({
+    ...complete,
+    branding: { logoUrl: 'javascript:alert(1)' },
+  }), /brand logo URL must use http or https/)
+  assert.equal(normalizeManagedTenantConfig(complete).branding.logoUrl, undefined)
+})
