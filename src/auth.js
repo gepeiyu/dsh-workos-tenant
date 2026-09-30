@@ -11,6 +11,7 @@ import {
   publicManagedTenantConfig,
   TenantConfigError,
 } from './config.js'
+import { D1TenantStorage, normalizeBranding } from './storage.js'
 import { isConfigurationAdmin } from './model-scope.js'
 
 const DEFAULT_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
@@ -308,6 +309,13 @@ export class WorkOSAuthService extends Service {
     this.identityContext = new AsyncLocalStorage()
     this.client = config.client
     this.management = config.management
+    const storageConfig = this.management?.effectiveConfig?.storage
+    this.brandingStorage = storageConfig?.mode === 'd1'
+      ? new D1TenantStorage({
+        ...storageConfig.d1,
+        encryptionKey: storageConfig.encryptionKey,
+      })
+      : undefined
   }
 
   async [Service.init]() {
@@ -406,6 +414,11 @@ export class WorkOSAuthService extends Service {
       kind: 'exact',
       path: '/auth/tenant-settings',
       handler: (req, res) => this.tenantSettings(req, res),
+    })
+    if (this.management) register({
+      kind: 'exact',
+      path: '/auth/tenant-branding',
+      handler: (req, res) => this.tenantBranding(req, res),
     })
     register({ kind: 'exact', path: '/auth/resources', handler: (req, res) => this.resources(req, res) })
     register({ kind: 'exact', path: '/auth/legacy-resources', handler: (req, res) => this.legacyResources(req, res) })
@@ -665,6 +678,31 @@ export class WorkOSAuthService extends Service {
       this.ctx.logger?.warn?.(`Tenant configuration update failed: ${error.message}`)
       return json(res, status, {
         error: error.code ?? 'TENANT_CONFIG_UPDATE_FAILED',
+        detail: error.message,
+      })
+    }
+  }
+
+  async tenantBranding(req, res) {
+    const identity = this.identityFromRequest(req)
+    if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
+    if (!this.brandingStorage) {
+      return json(res, 503, { error: 'D1_REQUIRED', detail: 'Cloudflare D1 storage is required for tenant branding' })
+    }
+    try {
+      if (req.method === 'GET') {
+        return json(res, 200, { branding: await this.brandingStorage.loadBranding() })
+      }
+      if (req.method !== 'PUT') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { allow: 'GET, PUT' })
+      if (!isConfigurationAdmin(identity)) return json(res, 403, { error: 'ADMIN_REQUIRED' })
+      const branding = normalizeBranding(await readJson(req, 2 * 1024 * 1024))
+      await this.brandingStorage.saveBranding(branding)
+      return json(res, 200, { branding })
+    } catch (error) {
+      const status = error instanceof TenantConfigError ? error.status : 500
+      this.ctx.logger?.warn?.(`Tenant branding request failed: ${error.message}`)
+      return json(res, status, {
+        error: error.code ?? 'TENANT_BRANDING_FAILED',
         detail: error.message,
       })
     }

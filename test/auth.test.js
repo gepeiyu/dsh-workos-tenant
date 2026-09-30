@@ -365,6 +365,50 @@ test('tenant settings are admin-only and redact secrets', async () => {
   assert.equal(saved.workos.apiKey, 'sk_secret')
 })
 
+test('tenant branding is platform-scoped and only admins can write it', async () => {
+  const sessions = new WorkOSAuthSessionStore({ cookieSecret: 'b'.repeat(32), secureCookies: false })
+  const admin = sessions.createSession({ organizationId: 'org_brand', userId: 'user_admin', role: 'admin' })
+  const member = sessions.createSession({ organizationId: 'org_brand', userId: 'user_member', role: 'member' })
+  const saved = []
+  const service = Object.create(WorkOSAuthService.prototype)
+  service.sessions = sessions
+  service.brandingStorage = {
+    async loadBranding() {
+      return { badge: 'ACME', logo: null, wordmark: null }
+    },
+    async saveBranding(branding) {
+      saved.push({ branding })
+    },
+  }
+  service.ctx = { logger: { warn() {} } }
+
+  const call = async (cookie, method = 'GET', body) => {
+    let response
+    const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
+    request.method = method
+    request.headers = {
+      cookie: cookie.split(';', 1)[0],
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    }
+    await service.tenantBranding(request, {
+      writeHead(status, headers) { response = { status, headers } },
+      end(value) { response.body = value ? JSON.parse(value) : undefined },
+    })
+    return response
+  }
+
+  assert.equal((await call(member.setCookie)).status, 200)
+  assert.equal((await call(member.setCookie, 'PUT', { badge: 'NOPE' })).status, 403)
+  assert.equal((await call(admin.setCookie, 'PUT', {
+    badge: 'ACME',
+    logo: 'data:image/png;base64,AA==',
+    wordmark: null,
+  })).status, 200)
+  assert.deepEqual(saved, [{
+    branding: { badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null },
+  }])
+})
+
 test('legacy recovery requires an administrator, matching origin, and the current user confirmation', async () => {
   const service = Object.create(WorkOSAuthService.prototype)
   service.sessions = new WorkOSAuthSessionStore({cookieSecret:'l'.repeat(32)})

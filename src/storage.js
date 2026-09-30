@@ -4,12 +4,36 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 
 const STATE_VERSION = 1
 const DEFAULT_ROW_ID = 'tenant-policy'
+const PLATFORM_BRANDING_ID = 'platform'
+const DEFAULT_BRANDING = Object.freeze({ badge: 'HARNESS', logo: null, wordmark: null })
+// Keep both images comfortably below D1's 1 MB row limit when stored together.
+const MAX_BRANDING_IMAGE_BYTES = 380_000
 
 export class TenantStorageError extends Error {
   constructor(message, options = {}) {
     super(message, options)
     this.name = 'TenantStorageError'
   }
+}
+
+function brandingText(value, label, max) {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string' || value.length > max) {
+    throw new TenantStorageError(`${label} must be a string of at most ${max} characters`)
+  }
+  if (!/^data:image\/(?:png|jpeg|webp|gif);base64,/.test(value)) {
+    throw new TenantStorageError(`${label} must be a browser image data URL`)
+  }
+  return value
+}
+
+export function normalizeBranding(value = {}) {
+  const badge = typeof value.badge === 'string' && value.badge.trim()
+    ? value.badge.trim().slice(0, 30)
+    : DEFAULT_BRANDING.badge
+  const logo = brandingText(value.logo, 'logo', MAX_BRANDING_IMAGE_BYTES)
+  const wordmark = brandingText(value.wordmark, 'wordmark', MAX_BRANDING_IMAGE_BYTES)
+  return { badge, logo, wordmark }
 }
 
 function encryptionKey(value) {
@@ -122,6 +146,43 @@ export class D1TenantStorage {
       state TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`)
+  }
+
+  async ensureBrandingTable() {
+    await this.query(`CREATE TABLE IF NOT EXISTS dsh_tenant_branding (
+      scope_id TEXT PRIMARY KEY,
+      badge TEXT NOT NULL,
+      logo TEXT,
+      wordmark TEXT,
+      updated_at TEXT NOT NULL
+    )`)
+  }
+
+  async loadBranding() {
+    await this.ensureBrandingTable()
+    const rows = await this.query(
+      'SELECT badge, logo, wordmark FROM dsh_tenant_branding WHERE scope_id = ?',
+      [PLATFORM_BRANDING_ID],
+    )
+    return normalizeBranding(rows[0] ?? DEFAULT_BRANDING)
+  }
+
+  saveBranding(branding) {
+    const value = normalizeBranding(branding)
+    this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
+      await this.ensureBrandingTable()
+      await this.query(
+        `INSERT INTO dsh_tenant_branding (scope_id, badge, logo, wordmark, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(scope_id) DO UPDATE SET
+           badge = excluded.badge,
+           logo = excluded.logo,
+           wordmark = excluded.wordmark,
+           updated_at = excluded.updated_at`,
+        [PLATFORM_BRANDING_ID, value.badge, value.logo, value.wordmark, new Date().toISOString()],
+      )
+    })
+    return this.writeQueue
   }
 
   async load() {

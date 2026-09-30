@@ -102,6 +102,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
 - Signed-in user or email and organization details in the sidebar, with a sign-out menu.
 - WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant for network access, workspace paths, connection, and storage.
+- An independent DSH Settings > Branding page for the whale logo, DeepSeek wordmark, and HARNESS badge text. Branding is a platform-wide singleton in Cloudflare D1; only administrators can write it, while all signed-in users share it.
 - Members can manage only their own Models page; tenant settings remain administrator-only.
 - Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
@@ -120,6 +121,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Server-side repair support for legacy resource ownership when a deployment needs it.
 - Local JSON persistence when no D1 configuration is present.
 - Cloudflare D1 REST persistence when configured, with encrypted state payloads.
+- Browser-compressed branding images persisted in D1; the branding table is created automatically on first use.
 - Pure Node tests for the policy and storage boundary.
 
 The policy keeps an in-memory cache for synchronous DSH controller and LLM calls, then writes changes through the selected storage adapter. D1 writes are serialized; deploy multiple DSH replicas only after adding a stronger concurrency strategy.

@@ -7,6 +7,7 @@ import {
   D1TenantStorage,
   LocalTenantStorage,
   TenantStorageError,
+  normalizeBranding,
 } from '../src/storage.js'
 
 test('local tenant storage persists and encrypts state when configured', async () => {
@@ -53,10 +54,17 @@ test('D1 storage sends encrypted state through the Cloudflare query API', async 
   })
   await storage.load()
   await storage.save({ sessions: [], workspaces: [], apiKeys: [{ key: 'x', value: 'secret-value' }] })
+  await storage.loadBranding()
+  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null })
 
   assert.equal(calls.every(call => call.url.includes('/accounts/account/d1/database/database/query')), true)
   assert.equal(calls.every(call => call.init.headers.authorization === 'Bearer token'), true)
   const insert = calls.find(call => call.body.sql.includes('INSERT INTO'))
   assert.ok(insert)
   assert.equal(insert.body.params[1].includes('secret-value'), false)
+  const brandingInsert = calls.find(call => call.body.sql.includes('dsh_tenant_branding') && call.body.sql.includes('INSERT INTO'))
+  assert.ok(brandingInsert)
+  assert.equal(brandingInsert.body.params[0], 'platform')
+  assert.deepEqual(normalizeBranding({}), { badge: 'HARNESS', logo: null, wordmark: null })
+  assert.throws(() => normalizeBranding({ logo: 'https://example.com/logo.png' }), TenantStorageError)
 })

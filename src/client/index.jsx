@@ -7,6 +7,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { installSessionVisibility } from './visibility.js'
+import { BrandingSettings, installBranding } from './branding.jsx'
 
 const NS = 'workos.account'
 
@@ -19,6 +20,24 @@ const zh = {
   tenantTab: 'WorkOS 租户',
   tenantTitle: 'WorkOS 租户配置',
   tenantIntro: '管理登录、网络访问、工作区路径和租户状态存储。连接或存储变更将在重启 DSH 后生效。',
+  branding: '品牌定制',
+  brandingHint: '作为平台级设置保存到 Cloudflare D1。图片会在浏览器中压缩后传输，所有已登录用户都会看到同一品牌。',
+  brandLogo: '鲸鱼标志',
+  brandLogoHint: '替换左上角的鲸鱼图形，建议使用带透明背景的方形图片。',
+  brandWordmark: 'DeepSeek 字标',
+  brandWordmarkHint: '替换 DeepSeek 文字区域，建议使用横向透明图片。',
+  brandBadge: 'HARNESS 徽章文字',
+  brandBadgeHint: '最多 30 个字符，同时同步浏览器标签页标题。',
+  brandDefault: '使用默认图案',
+  brandChooseImage: '选择本地图片',
+  brandReset: '恢复默认',
+  brandResetAll: '全部恢复默认',
+  brandSave: '保存品牌设置',
+  brandSaving: '正在保存…',
+  brandSaved: '品牌设置已保存。',
+  brandLoading: '正在加载品牌设置…',
+  brandLoadFailed: '无法加载品牌设置。请确认 D1 已启用。',
+  brandSaveFailed: '无法保存品牌设置。',
   network: '网络访问',
   allowNetworkAccess: '允许同一网络中的其他设备访问 DSH',
   allowNetworkAccessHint: '开启后 DSH 会监听所有网卡。保存后需要重启 DSH，并确认防火墙只允许可信网络。',
@@ -63,6 +82,24 @@ const en = {
   tenantTab: 'WorkOS tenant',
   tenantTitle: 'WorkOS tenant configuration',
   tenantIntro: 'Manage sign-in, network access, workspace paths, and tenant-state storage. Connection and storage changes apply after restarting DSH.',
+  branding: 'Branding',
+  brandingHint: 'Stored as a platform setting in Cloudflare D1. Images are compressed in the browser before upload, and all signed-in users see the same brand.',
+  brandLogo: 'Whale logo',
+  brandLogoHint: 'Replace the whale mark in the top-left corner. A square transparent image works best.',
+  brandWordmark: 'DeepSeek wordmark',
+  brandWordmarkHint: 'Replace the DeepSeek wordmark. A wide transparent image works best.',
+  brandBadge: 'HARNESS badge text',
+  brandBadgeHint: 'Up to 30 characters; the browser tab title follows this value.',
+  brandDefault: 'Default artwork',
+  brandChooseImage: 'Choose local image',
+  brandReset: 'Restore default',
+  brandResetAll: 'Restore all defaults',
+  brandSave: 'Save branding',
+  brandSaving: 'Saving…',
+  brandSaved: 'Branding saved.',
+  brandLoading: 'Loading branding…',
+  brandLoadFailed: 'Could not load branding. Check that D1 storage is enabled.',
+  brandSaveFailed: 'Could not save branding.',
   network: 'Network access',
   allowNetworkAccess: 'Allow other devices on the network to access DSH',
   allowNetworkAccessHint: 'DSH will listen on all network interfaces. Restart DSH after saving and restrict access with your firewall.',
@@ -600,6 +637,7 @@ export function apply(ctx) {
   ctx.effect(() => installSessionVisibility(ctx), 'workos-account: session visibility')
   ctx.effect(installStyles, 'workos-account: styles')
   ctx.effect(() => installSettingsVisibility(ctx), 'workos-account: settings visibility')
+  ctx.effect(installBranding, 'workos-account: branding')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workos-account: dictionaries')
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
@@ -614,4 +652,11 @@ export function apply(ctx) {
     label: () => ctx.locale.bind(NS)('tenantTab'),
     locale: NS,
   }, TenantSettingsTab))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'workos-branding',
+    order: 70,
+    label: () => ctx.locale.bind(NS)('branding'),
+    locale: NS,
+  }, () => <BrandingSettings t={ctx.locale.bind(NS)} />))
 }
