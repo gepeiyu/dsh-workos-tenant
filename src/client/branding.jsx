@@ -186,7 +186,7 @@ function renderBrand(svg, value) {
   svg.appendChild(badge)
 }
 
-export function installBranding() {
+function installBrandingUnsafe() {
   const originalTitle = document.title
   let currentSvg
   let currentValue
@@ -242,5 +242,19 @@ export function installBranding() {
     clearSvg(currentSvg)
     style.remove()
     document.title = originalTitle
+  }
+}
+
+/**
+ * Branding is an optional DOM enhancement. A host shell can activate the
+ * client plugin before its document chrome is ready, so a DOM failure here
+ * must not abort the whole client plugin tree.
+ */
+export function installBranding() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  try {
+    return installBrandingUnsafe()
+  } catch (error) {
+    console.error('[dsh-workos-tenant] branding enhancement unavailable', error)
   }
 }
