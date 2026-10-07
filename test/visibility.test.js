@@ -26,3 +26,14 @@ test('login clears the shared selection without replacing session snapshot reade
   assert.equal(sessions.create, originalCreate)
   assert.deepEqual(sessions.list.getSnapshot().ids, ['own'])
 })
+
+test('login refreshes sessions when the current host has no legacy clear method', async () => {
+  const calls = []
+  const sessions = {
+    list: { getSnapshot: () => ({ ids: ['own'] }) },
+    async refresh() { calls.push('refresh') },
+  }
+  installSessionVisibility({ sessions }, async () => ({ ok: true }))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(calls, ['refresh'])
+})

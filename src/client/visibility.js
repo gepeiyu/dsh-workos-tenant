@@ -1,7 +1,9 @@
-/** Clear Harness's browser-wide selection before any account's UI resumes. */
+/** Clear the legacy browser-wide selection before any account's UI resumes. */
 export function installSessionVisibility(ctx, request = globalThis.fetch) {
   const sessions = ctx.sessions
-  sessions.clear()
+  // DSH 0.2 moved selection state out of ClientSessions and removed this method.
+  // Keep the call for older hosts without making activation depend on it.
+  if (typeof sessions.clear === 'function') sessions.clear()
   let disposed = false
   void request('/auth/resources', { credentials: 'same-origin', cache: 'no-store' })
     .then(response => {
