@@ -102,7 +102,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - WorkOS AuthKit `/auth/login`, `/auth/callback`, `/auth/logout`, and `/auth/me` routes.
 - Signed-in user or email and organization details in the sidebar, with a sign-out menu.
 - WorkOS tenant settings under DSH Settings > Plugins > WorkOS tenant for network access, workspace paths, connection, and storage.
-- An independent DSH Settings > Branding page for the whale logo, DeepSeek wordmark, and HARNESS badge text. Branding is a platform-wide singleton in Cloudflare D1; only administrators can write it, while all signed-in users share it.
+- An independent DSH Settings > Branding page for the whale logo, DeepSeek wordmark, and HARNESS badge text. Branding is a platform-wide singleton in the selected tenant storage; only administrators can write it, while all signed-in users share it.
 - Members can manage only their own Models page; tenant settings remain administrator-only.
 - Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
@@ -121,7 +121,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Server-side repair support for legacy resource ownership when a deployment needs it.
 - Local JSON persistence when no D1 configuration is present.
 - Cloudflare D1 REST persistence when configured, with encrypted state payloads.
-- Browser-compressed branding images persisted in D1; the branding table is created automatically on first use.
+- Browser-compressed branding images persisted in the selected tenant storage; local mode uses an encrypted sidecar file and D1 mode creates its branding table automatically on first use.
 - Pure Node tests for the policy and storage boundary.
 
 The policy keeps an in-memory cache for synchronous DSH controller and LLM calls, then writes changes through the selected storage adapter. D1 writes are serialized; deploy multiple DSH replicas only after adding a stronger concurrency strategy.
@@ -189,6 +189,7 @@ This boundary covers DSH Web Workspace and Session APIs. It does not reduce the 
 ## Storage configuration
 
 Without storage settings, the plugin stores tenant state in a local JSON file under `$DSH_HOME/tenant-state.json`. You can set a custom path with `DSH_TENANT_STATE_FILE`.
+Branding in local mode is stored in the encrypted sidecar file `$DSH_TENANT_STATE_FILE.branding`; override it with `DSH_TENANT_BRANDING_FILE` when needed.
 
 To use Cloudflare D1 from the Node-based DSH process, configure the D1 REST API and an encryption key:
 

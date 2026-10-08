@@ -80,6 +80,8 @@ export class LocalTenantStorage {
   constructor(options = {}) {
     this.filePath = resolve(options.filePath ?? process.env.DSH_TENANT_STATE_FILE ??
       resolve(process.env.DSH_HOME ?? process.cwd(), 'tenant-state.json'))
+    this.brandingFilePath = resolve(options.brandingFilePath ?? process.env.DSH_TENANT_BRANDING_FILE ??
+      `${this.filePath}.branding`)
     this.encryptionKey = options.encryptionKey ?? process.env.DSH_TENANT_ENCRYPTION_KEY
   }
 
@@ -98,6 +100,23 @@ export class LocalTenantStorage {
     const payload = seal(JSON.stringify(normalizeState(state)), this.encryptionKey)
     mkdirSync(dirname(this.filePath), { recursive: true })
     writeFileSync(this.filePath, payload, { mode: 0o600 })
+  }
+
+  async loadBranding() {
+    try {
+      const raw = readFileSync(this.brandingFilePath, 'utf8')
+      return normalizeBranding(JSON.parse(open(raw, this.encryptionKey)))
+    } catch (error) {
+      if (error?.code === 'ENOENT') return normalizeBranding()
+      if (error instanceof TenantStorageError) throw error
+      throw new TenantStorageError(`Could not read local tenant branding: ${error.message}`, { cause: error })
+    }
+  }
+
+  saveBranding(branding) {
+    const payload = seal(JSON.stringify(normalizeBranding(branding)), this.encryptionKey)
+    mkdirSync(dirname(this.brandingFilePath), { recursive: true })
+    writeFileSync(this.brandingFilePath, payload, { mode: 0o600 })
   }
 }
 

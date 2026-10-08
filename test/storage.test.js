@@ -25,6 +25,18 @@ test('local tenant storage persists and encrypts state when configured', async (
   rmSync(directory, { recursive: true, force: true })
 })
 
+test('local tenant storage persists encrypted branding separately from tenant state', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-tenant-branding-'))
+  const filePath = join(directory, 'state.json')
+  const storage = new LocalTenantStorage({ filePath, encryptionKey: 'b'.repeat(32) })
+  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null })
+  assert.equal(readFileSync(`${filePath}.branding`, 'utf8').includes('ACME'), false)
+  assert.deepEqual(await storage.loadBranding(), {
+    badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null,
+  })
+  rmSync(directory, { recursive: true, force: true })
+})
+
 test('D1 storage requires encryption for tenant secrets', () => {
   assert.throws(() => new D1TenantStorage({
     accountId: 'account',

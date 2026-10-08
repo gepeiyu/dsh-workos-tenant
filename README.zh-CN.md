@@ -102,7 +102,7 @@ sequenceDiagram
 - WorkOS AuthKit 路由 `/auth/login`、`/auth/callback`、`/auth/logout` 和 `/auth/me`；
 - 登录后在侧栏底部显示用户名或邮箱及组织名，并提供退出登录菜单；
 - 在 DSH「设置 > 插件 > WorkOS 租户」提供网络访问、工作区路径、连接和存储配置；
-- 在独立的「设置 > 品牌定制」页面修改鲸鱼标志、DeepSeek 字标和 HARNESS 徽章文字；品牌配置作为平台级单例保存到 Cloudflare D1，仅管理员可写，所有已登录用户共享；
+- 在独立的「设置 > 品牌定制」页面修改鲸鱼标志、DeepSeek 字标和 HARNESS 徽章文字；品牌配置作为平台级单例保存到当前租户存储，仅管理员可写，所有已登录用户共享；
 - member 只能管理自己的「模型」，租户配置页仅管理员可见；
 - Provider 和凭据按用户隔离，未加用户前缀的共享 Provider 可供组织内使用；
 - 服务端授权码交换以及 HttpOnly、签名 Session Cookie；
@@ -121,7 +121,7 @@ sequenceDiagram
 - 支持由部署维护者直接修复历史资源归属；
 - 未配置 D1 时使用本地 JSON 持久化；
 - 配置 D1 时通过 Cloudflare D1 REST API 持久化，并加密状态内容；
-- 品牌图片在浏览器中压缩为 PNG 后保存到 D1，D1 表会在首次访问品牌接口时自动创建；
+- 品牌图片在浏览器中压缩后保存到当前租户存储；local 模式使用加密的独立文件，D1 模式会在首次访问品牌接口时自动创建品牌表；
 - 面向策略和存储边界的纯 Node 测试。
 
 策略层保留内存缓存，以满足同步的 DSH Controller 和 LLM 调用，然后通过选定的存储适配器写入变更。D1 写入在单个进程内串行化；运行多个 DSH 副本前，需要增加更强的并发控制策略。
@@ -189,6 +189,7 @@ owner 或 admin 可以在「设置 > 插件 > WorkOS 租户」中填写绝对路
 ## 存储配置
 
 没有存储配置时，插件会把租户状态保存到 `$DSH_HOME/tenant-state.json`。可以通过 `DSH_TENANT_STATE_FILE` 指定自定义路径。
+local 模式的品牌配置保存在加密的旁车文件 `$DSH_TENANT_STATE_FILE.branding` 中；如有需要可以通过 `DSH_TENANT_BRANDING_FILE` 覆盖路径。
 
 要从基于 Node 的 DSH 进程使用 Cloudflare D1，需要配置 D1 REST API 和加密密钥：
 

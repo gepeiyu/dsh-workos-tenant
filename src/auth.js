@@ -11,7 +11,7 @@ import {
   publicManagedTenantConfig,
   TenantConfigError,
 } from './config.js'
-import { D1TenantStorage, normalizeBranding } from './storage.js'
+import { createTenantStorage, normalizeBranding } from './storage.js'
 import { isConfigurationAdmin } from './model-scope.js'
 
 const DEFAULT_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
@@ -310,12 +310,7 @@ export class WorkOSAuthService extends Service {
     this.client = config.client
     this.management = config.management
     const storageConfig = this.management?.effectiveConfig?.storage
-    this.brandingStorage = storageConfig?.mode === 'd1'
-      ? new D1TenantStorage({
-        ...storageConfig.d1,
-        encryptionKey: storageConfig.encryptionKey,
-      })
-      : undefined
+    this.brandingStorage = storageConfig ? createTenantStorage(storageConfig, { preferConfig: true }) : undefined
   }
 
   async [Service.init]() {
@@ -687,7 +682,7 @@ export class WorkOSAuthService extends Service {
     const identity = this.identityFromRequest(req)
     if (!identity) return json(res, 401, { error: 'AUTH_REQUIRED' })
     if (!this.brandingStorage) {
-      return json(res, 503, { error: 'D1_REQUIRED', detail: 'Cloudflare D1 storage is required for tenant branding' })
+      return json(res, 503, { error: 'STORAGE_REQUIRED', detail: 'Tenant storage is required for branding' })
     }
     try {
       if (req.method === 'GET') {
