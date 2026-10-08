@@ -261,8 +261,9 @@ let accountSnapshot
 let accountRequest
 const accountListeners = new Set()
 
-function loadAccount() {
+function loadAccount({ force = false } = {}) {
   if (accountSnapshot) return Promise.resolve(accountSnapshot)
+  if (force) accountRequest = undefined
   accountRequest ??= fetch('/auth/me', {
     credentials: 'same-origin',
     cache: 'no-store',
@@ -278,6 +279,7 @@ function loadAccount() {
       console.error('[dsh-workos-tenant] account lookup failed', error)
       return undefined
     })
+    .finally(() => { accountRequest = undefined })
   return accountRequest
 }
 
@@ -291,8 +293,34 @@ function useAccount() {
   const [account, setAccount] = useState(accountSnapshot)
   useEffect(() => {
     let active = true
-    void loadAccount().then(value => { if (active) setAccount(value) })
-    return () => { active = false }
+    let attempts = 0
+    let retryTimer
+    const update = () => {
+      void loadAccount({ force: attempts > 0 }).then(value => {
+        if (!active) return
+        setAccount(value)
+        if (!value && attempts < 5) {
+          attempts += 1
+          retryTimer = window.setTimeout(update, 1200)
+        }
+      })
+    }
+    const wake = () => {
+      attempts = 0
+      update()
+    }
+    const onSnapshot = () => { if (active) setAccount(accountSnapshot) }
+    accountListeners.add(onSnapshot)
+    window.addEventListener('focus', wake)
+    document.addEventListener('visibilitychange', wake)
+    update()
+    return () => {
+      active = false
+      accountListeners.delete(onSnapshot)
+      window.removeEventListener('focus', wake)
+      document.removeEventListener('visibilitychange', wake)
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
   }, [])
   return account
 }
