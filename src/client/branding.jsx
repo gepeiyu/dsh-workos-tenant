@@ -5,7 +5,6 @@ const BRAND_NAME_SELECTOR = 'svg[viewBox="26 0 156 24"]'
 const BRAND_MARK_SELECTOR = 'svg[viewBox="0 0 23.16 17.04"]'
 const BADGE_TEXT_SELECTOR = 'g[clip-path*="badge"]'
 const WHALE_SELECTOR = 'g[clip-path*="whale"]'
-const BOOT_SELECTOR = '[data-dsh-boot]'
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const MAX_IMAGE_EDGE = 256
 const DEFAULT_BRANDING = { badge: 'HARNESS', logo: null, wordmark: null }
@@ -222,27 +221,13 @@ function findBrandTargets() {
 
 function installBrandingUnsafe() {
   const originalTitle = document.title
-  let bootWordmark
-  let originalBootText
   let currentTargets
   let currentValue
   let currentSignature
-  const ensureBootBranding = value => {
-    const boot = document.querySelector(BOOT_SELECTOR)
-    const candidate = boot?.firstElementChild?.firstElementChild
-    if (!candidate || (candidate.dataset.dshWorkosBranding !== 'boot' && candidate.textContent !== DEFAULT_BRANDING.badge)) return
-    if (bootWordmark !== candidate) {
-      bootWordmark = candidate
-      originalBootText = candidate.textContent
-    }
-    candidate.textContent = value.badge
-    candidate.dataset.dshWorkosBranding = 'boot'
-  }
   const ensure = () => {
-    const value = currentValue ?? DEFAULT_BRANDING
-    ensureBootBranding(value)
     const targets = findBrandTargets()
     if (!targets.name) return
+    const value = currentValue ?? DEFAULT_BRANDING
     const signature = `${value.badge}|${value.logo || ''}|${value.wordmark || ''}`
     const changed = targets.name !== currentTargets?.name || targets.mark !== currentTargets?.mark || signature !== currentSignature
     const missing = (value.badge !== DEFAULT_BRANDING.badge && !targets.name.querySelector('[data-dsh-workos-branding="badge"]')) ||
@@ -297,10 +282,6 @@ function installBrandingUnsafe() {
     window.removeEventListener(CHANGE_EVENT, onChange)
     clearSvg(currentTargets?.name)
     clearSvg(currentTargets?.mark)
-    if (bootWordmark?.dataset.dshWorkosBranding === 'boot') {
-      bootWordmark.textContent = originalBootText ?? DEFAULT_BRANDING.badge
-      delete bootWordmark.dataset.dshWorkosBranding
-    }
     style.remove()
     document.title = originalTitle
   }
