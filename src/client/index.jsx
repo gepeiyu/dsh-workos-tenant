@@ -645,10 +645,10 @@ export function apply(ctx) {
     order: 100,
     locale: NS,
   }, AccountAction))
-  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-    name: 'settings.plugins.tab',
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
     id: 'workos-tenant',
-    order: 30,
+    order: 60,
     label: () => ctx.locale.bind(NS)('tenantTab'),
     locale: NS,
   }, TenantSettingsTab))
