@@ -141,7 +141,7 @@ export function BrandingSettings({ t }) {
   )
 }
 
-function addImage(svg, key, value, x, y, width, height) {
+function addImage(svg, key, value, x, y, width, height, preserveAspectRatio = 'xMidYMid meet') {
   if (!value) return
   const image = document.createElementNS(SVG_NS, 'image')
   image.dataset.dshWorkosBranding = key
@@ -149,7 +149,7 @@ function addImage(svg, key, value, x, y, width, height) {
   image.setAttribute('y', String(y))
   image.setAttribute('width', String(width))
   image.setAttribute('height', String(height))
-  image.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+  image.setAttribute('preserveAspectRatio', preserveAspectRatio)
   image.setAttribute('pointer-events', 'none')
   image.setAttribute('href', value)
   image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', value)
@@ -169,11 +169,11 @@ function renderBrand(svg, value) {
   svg.querySelector(BADGE_TEXT_SELECTOR)?.style.setProperty('display', 'none')
   if (value.wordmark) {
     for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
-    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84)
+    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84, 'xMidYMid slice')
   }
   if (value.logo) {
     svg.querySelector(WHALE_SELECTOR)?.style.setProperty('display', 'none')
-    addImage(svg, 'logo', value.logo, 0.14, 3.52, 23.16, 17.04)
+    addImage(svg, 'logo', value.logo, 0.14, 3.52, 23.16, 17.04, 'xMidYMid slice')
   }
   const badge = document.createElementNS(SVG_NS, 'foreignObject')
   badge.dataset.dshWorkosBranding = 'badge'
@@ -193,7 +193,7 @@ function renderBrandName(svg, value) {
   svg.querySelector(BADGE_TEXT_SELECTOR)?.style.setProperty('display', 'none')
   if (value.wordmark) {
     for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
-    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84)
+    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84, 'xMidYMid slice')
   }
   const badge = document.createElementNS(SVG_NS, 'foreignObject')
   badge.dataset.dshWorkosBranding = 'badge'
@@ -212,7 +212,7 @@ function renderBrandMark(svg, value) {
   clearSvg(svg)
   if (!value.logo) return
   for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
-  addImage(svg, 'logo', value.logo, 0.14, 0, 23.16, 17.04)
+  addImage(svg, 'logo', value.logo, 0.14, 0, 23.16, 17.04, 'xMidYMid slice')
 }
 
 function findBrandTargets() {
