@@ -13,6 +13,11 @@ const NS = 'workos.account'
 
 const zh = {
   accountMenu: '账户菜单',
+  loadingAccount: '正在加载账户…',
+  signedOut: '未登录',
+  localMode: '本地模式',
+  accountUnavailable: '账户状态不可用',
+  signIn: '登录',
   logout: '退出登录',
   signedInAs: '当前用户',
   organization: '组织',
@@ -75,6 +80,11 @@ const zh = {
 
 const en = {
   accountMenu: 'Account menu',
+  loadingAccount: 'Loading account…',
+  signedOut: 'Signed out',
+  localMode: 'Local mode',
+  accountUnavailable: 'Account status unavailable',
+  signIn: 'Sign in',
   logout: 'Sign out',
   signedInAs: 'Signed in as',
   organization: 'Organization',
@@ -259,7 +269,18 @@ html[data-dsh-workos-member] [role="dialog"]:has(> nav) > div > :first-child > :
 
 let accountSnapshot
 let accountRequest
+let accountState = 'loading'
 const accountListeners = new Set()
+
+function notifyAccountListeners() {
+  for (const listener of accountListeners) listener()
+}
+
+function setAccountState(value) {
+  if (accountState === value) return
+  accountState = value
+  notifyAccountListeners()
+}
 
 function loadAccount({ force = false } = {}) {
   if (accountSnapshot) return Promise.resolve(accountSnapshot)
@@ -267,16 +288,21 @@ function loadAccount({ force = false } = {}) {
   accountRequest ??= fetch('/auth/me', {
     credentials: 'same-origin',
     cache: 'no-store',
-  }).then(async response => response.ok ? response.json() : undefined)
+  }).then(async response => {
+    if (response.ok) return response.json()
+    setAccountState(response.status === 404 ? 'local' : response.status === 401 || response.status === 403 ? 'signed-out' : 'error')
+    return undefined
+  })
     .then(value => {
       if (value?.user && value?.organization) {
         accountSnapshot = value
-        for (const listener of accountListeners) listener()
+        setAccountState('signed-in')
       }
       return accountSnapshot
     })
     .catch(error => {
       console.error('[dsh-workos-tenant] account lookup failed', error)
+      setAccountState('error')
       return undefined
     })
     .finally(() => { accountRequest = undefined })
@@ -290,7 +316,7 @@ function displayAccount(account) {
 }
 
 function useAccount() {
-  const [account, setAccount] = useState(accountSnapshot)
+  const [value, setValue] = useState(() => ({ account: accountSnapshot, status: accountState }))
   useEffect(() => {
     let active = true
     let attempts = 0
@@ -298,7 +324,7 @@ function useAccount() {
     const update = () => {
       void loadAccount({ force: attempts > 0 }).then(value => {
         if (!active) return
-        setAccount(value)
+        setValue({ account: value, status: accountState })
         if (!value && attempts < 5) {
           attempts += 1
           retryTimer = window.setTimeout(update, 1200)
@@ -309,7 +335,7 @@ function useAccount() {
       attempts = 0
       update()
     }
-    const onSnapshot = () => { if (active) setAccount(accountSnapshot) }
+    const onSnapshot = () => { if (active) setValue({ account: accountSnapshot, status: accountState }) }
     accountListeners.add(onSnapshot)
     window.addEventListener('focus', wake)
     document.addEventListener('visibilitychange', wake)
@@ -322,7 +348,7 @@ function useAccount() {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
     }
   }, [])
-  return account
+  return value
 }
 
 function isAdmin(account) {
@@ -585,9 +611,31 @@ function TenantSettingsTab({ t }) {
 }
 
 function AccountAction({ wide, t }) {
-  const account = useAccount()
+  const { account, status } = useAccount()
   const [open, setOpen] = useState(false)
-  if (!account) return null
+  if (!account) {
+    const primary = status === 'loading'
+      ? t('loadingAccount')
+      : status === 'local'
+        ? t('localMode')
+        : status === 'signed-out'
+          ? t('signedOut')
+          : t('accountUnavailable')
+    const canSignIn = status === 'signed-out'
+    const button = (
+      <button
+        type="button"
+        className="dsh-workos-account__button dsh-workos-account__button--status"
+        aria-label={canSignIn ? t('signIn') : primary}
+        disabled={!canSignIn}
+        onClick={() => { if (canSignIn) window.location.assign('/auth/login') }}
+      >
+        <span className="dsh-workos-account__avatar" aria-hidden="true"><IconUserOutline16 size={wide ? 14 : 18} /></span>
+        {wide && <span className="dsh-workos-account__copy"><span className="dsh-workos-account__primary">{primary}</span>{canSignIn && <span className="dsh-workos-account__secondary">{t('signIn')}</span>}</span>}
+      </button>
+    )
+    return <div className={`dsh-workos-account${wide ? '' : ' dsh-workos-account--rail'}`} data-dsh-workos-account="">{button}</div>
+  }
 
   const { primary, organization } = displayAccount(account)
   const label = `${primary}, ${organization}`
