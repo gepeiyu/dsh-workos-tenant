@@ -164,22 +164,14 @@ function clearSvg(svg) {
   for (const child of svg.children) if (child.tagName === 'path') child.style.removeProperty('display')
 }
 
-function renderBrand(svg, value) {
-  clearSvg(svg)
+function renderBadge(svg, value) {
+  if (value.badge === DEFAULT_BRANDING.badge) return
   svg.querySelector(BADGE_TEXT_SELECTOR)?.style.setProperty('display', 'none')
-  if (value.wordmark) {
-    for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
-    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84, 'xMidYMid slice')
-  }
-  if (value.logo) {
-    svg.querySelector(WHALE_SELECTOR)?.style.setProperty('display', 'none')
-    addImage(svg, 'logo', value.logo, 0.14, 3.52, 23.16, 17.04, 'xMidYMid slice')
-  }
   const badge = document.createElementNS(SVG_NS, 'foreignObject')
   badge.dataset.dshWorkosBranding = 'badge'
-  badge.setAttribute('x', '129.348')
+  badge.setAttribute('x', '132.348')
   badge.setAttribute('y', '5.5')
-  badge.setAttribute('width', '52')
+  badge.setAttribute('width', '46')
   badge.setAttribute('height', '14')
   const label = document.createElement('div')
   label.className = 'dsh-workos-brand__badge'
@@ -188,24 +180,26 @@ function renderBrand(svg, value) {
   svg.appendChild(badge)
 }
 
-function renderBrandName(svg, value) {
+function renderBrand(svg, value) {
   clearSvg(svg)
-  svg.querySelector(BADGE_TEXT_SELECTOR)?.style.setProperty('display', 'none')
   if (value.wordmark) {
     for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
     addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84, 'xMidYMid slice')
   }
-  const badge = document.createElementNS(SVG_NS, 'foreignObject')
-  badge.dataset.dshWorkosBranding = 'badge'
-  badge.setAttribute('x', '129.348')
-  badge.setAttribute('y', '5.5')
-  badge.setAttribute('width', '52')
-  badge.setAttribute('height', '14')
-  const label = document.createElement('div')
-  label.className = 'dsh-workos-brand__badge'
-  label.textContent = value.badge
-  badge.appendChild(label)
-  svg.appendChild(badge)
+  if (value.logo) {
+    svg.querySelector(WHALE_SELECTOR)?.style.setProperty('display', 'none')
+    addImage(svg, 'logo', value.logo, 0.14, 3.52, 23.16, 17.04, 'xMidYMid slice')
+  }
+  renderBadge(svg, value)
+}
+
+function renderBrandName(svg, value) {
+  clearSvg(svg)
+  if (value.wordmark) {
+    for (const child of svg.children) if (child.tagName === 'path') child.style.display = 'none'
+    addImage(svg, 'wordmark', value.wordmark, 27, 7.66, 94, 13.84, 'xMidYMid slice')
+  }
+  renderBadge(svg, value)
 }
 
 function renderBrandMark(svg, value) {
@@ -236,7 +230,7 @@ function installBrandingUnsafe() {
     const value = currentValue ?? DEFAULT_BRANDING
     const signature = `${value.badge}|${value.logo || ''}|${value.wordmark || ''}`
     const changed = targets.name !== currentTargets?.name || targets.mark !== currentTargets?.mark || signature !== currentSignature
-    const missing = !targets.name.querySelector('[data-dsh-workos-branding="badge"]') ||
+    const missing = (value.badge !== DEFAULT_BRANDING.badge && !targets.name.querySelector('[data-dsh-workos-branding="badge"]')) ||
       (!targets.legacy && targets.mark && value.logo && !targets.mark.querySelector('[data-dsh-workos-branding="logo"]'))
     if (changed || missing) {
       if (currentTargets?.name && currentTargets.name !== targets.name) clearSvg(currentTargets.name)
@@ -274,7 +268,7 @@ function installBrandingUnsafe() {
     .dsh-workos-brand__button--primary { background: var(--dsw-alias-state-business-primary); border-color: transparent; color: white; }
     .dsh-workos-brand__button--danger { color: var(--dsw-alias-label-error); }
     .dsh-workos-brand__actions { display: flex; align-items: center; gap: 10px; padding-top: 16px; }
-    .dsh-workos-brand__badge { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; color: var(--dsw-alias-label-primary-inverted, #fff); font: 400 10px/1 inherit; letter-spacing: 1.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transform: scaleX(.82); }
+    .dsh-workos-brand__badge { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; padding: 0 1px; color: var(--dsw-alias-label-primary-inverted, #fff); font-family: inherit; font-size: 10px; font-weight: 400; line-height: 14px; letter-spacing: .4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     @media (max-width: 680px) { .dsh-workos-brand__field { align-items: flex-start; flex-direction: column; } .dsh-workos-brand__controls { width: 100%; flex-wrap: wrap; } }
   `
   document.head.appendChild(style)
