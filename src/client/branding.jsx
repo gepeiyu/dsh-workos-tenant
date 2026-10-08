@@ -9,6 +9,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 const MAX_IMAGE_EDGE = 256
 const DEFAULT_BRANDING = { badge: 'HARNESS', logo: null, wordmark: null }
 const CHANGE_EVENT = 'dsh-workos-tenant:branding-change'
+const FAVICON_SELECTOR = 'link[rel~="icon"]'
 
 function compressImage(dataUrl) {
   return new Promise(resolve => {
@@ -219,15 +220,34 @@ function findBrandTargets() {
   return { name, mark, legacy: false }
 }
 
+function applyDocumentBranding(value) {
+  document.title = value.badge
+  let favicon = document.head.querySelector('[data-dsh-workos-branding="favicon"]')
+  if (!value.logo) {
+    favicon?.remove()
+    return
+  }
+  if (!favicon) {
+    favicon = document.createElement('link')
+    favicon.dataset.dshWorkosBranding = 'favicon'
+    favicon.setAttribute('rel', 'icon')
+    favicon.setAttribute('type', 'image/png')
+    document.head.appendChild(favicon)
+  }
+  favicon.setAttribute('href', value.logo)
+}
+
 function installBrandingUnsafe() {
   const originalTitle = document.title
+  const originalFavicons = [...document.head.querySelectorAll(FAVICON_SELECTOR)]
   let currentTargets
   let currentValue
   let currentSignature
   const ensure = () => {
+    const value = currentValue ?? DEFAULT_BRANDING
+    applyDocumentBranding(value)
     const targets = findBrandTargets()
     if (!targets.name) return
-    const value = currentValue ?? DEFAULT_BRANDING
     const signature = `${value.badge}|${value.logo || ''}|${value.wordmark || ''}`
     const changed = targets.name !== currentTargets?.name || targets.mark !== currentTargets?.mark || signature !== currentSignature
     const missing = (value.badge !== DEFAULT_BRANDING.badge && !targets.name.querySelector('[data-dsh-workos-branding="badge"]')) ||
@@ -243,7 +263,6 @@ function installBrandingUnsafe() {
       currentTargets = targets
       currentSignature = signature
     }
-    document.title = value.badge
   }
   const load = () => {
     void fetch('/auth/tenant-branding', { credentials: 'same-origin', cache: 'no-store' })
@@ -282,6 +301,8 @@ function installBrandingUnsafe() {
     window.removeEventListener(CHANGE_EVENT, onChange)
     clearSvg(currentTargets?.name)
     clearSvg(currentTargets?.mark)
+    document.head.querySelector('[data-dsh-workos-branding="favicon"]')?.remove()
+    for (const favicon of originalFavicons) if (!favicon.isConnected) document.head.appendChild(favicon)
     style.remove()
     document.title = originalTitle
   }
