@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   Button,
-  IconChevronUpOutline14,
-  IconUserOutline16,
+  IconChevronUpOutlineRegular,
+  IconUserOutlineRegular,
   Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -630,7 +630,7 @@ function AccountAction({ wide, t }) {
         disabled={!canSignIn}
         onClick={() => { if (canSignIn) window.location.assign('/auth/login') }}
       >
-        <span className="dsh-workos-account__avatar" aria-hidden="true"><IconUserOutline16 size={wide ? 14 : 18} /></span>
+          <span className="dsh-workos-account__avatar" aria-hidden="true"><IconUserOutlineRegular size={wide ? 14 : 18} /></span>
         {wide && <span className="dsh-workos-account__copy"><span className="dsh-workos-account__primary">{primary}</span>{canSignIn && <span className="dsh-workos-account__secondary">{t('signIn')}</span>}</span>}
       </button>
     )
@@ -650,7 +650,7 @@ function AccountAction({ wide, t }) {
       onClick={() => { setOpen(value => !value) }}
     >
       <span className="dsh-workos-account__avatar" aria-hidden="true">
-        <IconUserOutline16 size={wide ? 14 : 18} />
+        <IconUserOutlineRegular size={wide ? 14 : 18} />
       </span>
       {wide && (
         <span className="dsh-workos-account__copy">
@@ -658,7 +658,7 @@ function AccountAction({ wide, t }) {
           <span className="dsh-workos-account__secondary">{organization}</span>
         </span>
       )}
-      {wide && <IconChevronUpOutline14 className="dsh-workos-account__chevron" />}
+      {wide && <IconChevronUpOutlineRegular className="dsh-workos-account__chevron" />}
     </button>
   )
 
