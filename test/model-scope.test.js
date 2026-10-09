@@ -45,9 +45,13 @@ test('member model views hide providers owned by other users', () => {
   assert.deepEqual(Object.keys(descriptor.user.providers), [own])
 
   const catalog = filterModelCatalog(alice, {
-    groups: [{ id: 'shared' }, { id: own }, { id: other }],
+    default: { provider: other, model: 'secret' },
+    routableProviders: ['shared', own, other],
+    groups: [{ id: 'shared', models: [{ id: 'shared-model' }] }, { id: own, models: [{ id: 'own-model' }] }, { id: other, models: [{ id: 'other-model' }] }],
     failures: [{ id: other }],
   })
+  assert.deepEqual(catalog.routableProviders, ['shared', own])
+  assert.deepEqual(catalog.default, { provider: 'shared', model: 'shared-model' })
   assert.deepEqual(catalog.groups.map(group => group.id), ['shared', own])
   assert.deepEqual(catalog.failures, [])
 })

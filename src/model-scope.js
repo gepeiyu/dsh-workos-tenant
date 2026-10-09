@@ -31,10 +31,18 @@ export function canSeeProvider(identity, provider) {
 export function filterModelCatalog(identity, value) {
   if (!value || isConfigurationAdmin(identity)) return value
   const allowed = row => canSeeProvider(identity, row.id)
+  const groups = (value.groups ?? []).filter(allowed)
+  const failures = (value.failures ?? []).filter(allowed)
+  const routableProviders = (value.routableProviders ?? []).filter(provider => canSeeProvider(identity, provider))
+  const defaultSelection = value.default && canSeeProvider(identity, value.default.provider)
+    ? value.default
+    : groups.flatMap(group => group.models?.length ? [{ provider: group.id, model: group.models[0].id }] : [])[0]
   return {
     ...value,
-    groups: (value.groups ?? []).filter(allowed),
-    failures: (value.failures ?? []).filter(allowed),
+    ...(defaultSelection ? { default: defaultSelection } : {}),
+    routableProviders,
+    groups,
+    failures,
   }
 }
 

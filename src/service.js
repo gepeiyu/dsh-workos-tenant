@@ -215,6 +215,10 @@ export class TenantPolicyService extends Service {
     this.patchDirectoryPicker(this.ctx.get('directoryPickerController', false))
     this.patchGateway(this.ctx.get('typertGateway', false))
     this.patchApiProxy(this.ctx.get('apiProxy', false))
+    this.patchSettings(this.ctx.get('settings', false))
+    this.patchSettingsController(this.ctx.get('settingsController', false))
+    this.patchLlm(this.ctx.get('llm', false))
+    this.patchAgentPresets(this.ctx.get('agentPresets', false))
     this.patchCredentialProvider(this.ctx.get('credentials', false))
     this.patchAdminService(this.ctx.get('pluginInventory', false), ['list'])
     this.ctx.on('internal/service', name => {
@@ -224,6 +228,10 @@ export class TenantPolicyService extends Service {
       if (name === 'directoryPickerController') this.patchDirectoryPicker(this.ctx.get(name, false))
       if (name === 'typertGateway') this.patchGateway(this.ctx.get(name, false))
       if (name === 'apiProxy') this.patchApiProxy(this.ctx.get(name, false))
+      if (name === 'settings') this.patchSettings(this.ctx.get(name, false))
+      if (name === 'settingsController') this.patchSettingsController(this.ctx.get(name, false))
+      if (name === 'llm') this.patchLlm(this.ctx.get(name, false))
+      if (name === 'agentPresets') this.patchAgentPresets(this.ctx.get(name, false))
       if (name === 'credentials') this.patchCredentialProvider(this.ctx.get(name, false))
       if (name === 'pluginInventory') this.patchAdminService(this.ctx.get(name, false), ['list'])
     })
@@ -407,6 +415,85 @@ export class TenantPolicyService extends Service {
       for (const [name, original] of Object.entries(originals)) prototype[name] = original
       delete prototype.__dshTenantCredentials
     }, 'tenant-policy: restore credential scoping')
+  }
+
+  patchSettings(settings) {
+    if (!settings || !this.auth) return
+    const service = this
+    const directory = () => service.ctx.get('llm', false)?.listConfigurableProviders?.() ?? []
+    const allowedNamespaces = () => new Set(directory().map(entry => entry.settingsNs))
+    this.patchPrototype(settings, {
+      describe: original => function (options, ...args) {
+        const identity = service.currentIdentity()
+        const value = original.call(this, options, ...args)
+        if (isConfigurationAdmin(identity)) return value
+        const allowed = allowedNamespaces()
+        return value
+          .filter(namespace => allowed.has(namespace.ns))
+          .map(namespace => filterMemberNamespace(identity, directory(), namespace))
+      },
+      update: original => function (ns, ...args) {
+        if (!isConfigurationAdmin(service.currentIdentity())) {
+          throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required', 403)
+        }
+        return original.call(this, ns, ...args)
+      },
+      replace: original => function (ns, ...args) {
+        if (!isConfigurationAdmin(service.currentIdentity())) {
+          throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required', 403)
+        }
+        return original.call(this, ns, ...args)
+      },
+      mutate: original => function (ns, ops, expectedRevision, ...args) {
+        const identity = service.currentIdentity()
+        if (isConfigurationAdmin(identity)) return original.call(this, ns, ops, expectedRevision, ...args)
+        if (!allowedNamespaces().has(ns)) {
+          throw new TenantError('SETTINGS_FORBIDDEN', 'This settings namespace is not available to the current tenant', 403)
+        }
+        const rewritten = rewriteMemberModelOps(identity, directory(), ns, ops)
+        // SettingsForms.mutate returns void in DSH 0.2. The owning remote
+        // controller performs its own redacted describe after this write.
+        return original.call(this, ns, rewritten, expectedRevision, ...args)
+      },
+    })
+  }
+
+  patchSettingsController(controller) {
+    if (!controller || !this.auth) return
+    const service = this
+    this.patchPrototype(controller, {
+      openSettingsDocument: original => function (...args) {
+        if (!isConfigurationAdmin(service.currentIdentity())) {
+          throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required', 403)
+        }
+        return original.call(this, ...args)
+      },
+    })
+  }
+
+  patchLlm(llm) {
+    if (!llm || !this.auth) return
+    const service = this
+    this.patchPrototype(llm, {
+      listConfigurableProviders: original => function (...args) {
+        const value = original.call(this, ...args)
+        const identity = service.currentIdentity()
+        return isConfigurationAdmin(identity) ? value : filterMemberProviders(identity, value)
+      },
+    })
+  }
+
+  patchAgentPresets(registry) {
+    if (!registry || !this.auth) return
+    const service = this
+    this.patchPrototype(registry, {
+      readDocument: original => function (...args) {
+        if (!isConfigurationAdmin(service.currentIdentity())) {
+          throw new TenantError('ADMIN_REQUIRED', 'Administrator permission is required', 403)
+        }
+        return original.call(this, ...args)
+      },
+    })
   }
 
   patchApiProxy(proxy) {
@@ -611,6 +698,26 @@ export class TenantPolicyService extends Service {
       attachment: sessionRequest,
       updateQueue: sessionRequest,
       cancel: sessionRequest,
+      projections: sessionRequest,
+      modelCatalog: original => function (...args) {
+        const identity = requireIdentity()
+        return Promise.resolve(original.call(this, ...args)).then(value =>
+          isConfigurationAdmin(identity) ? value : filterModelCatalog(identity, value))
+      },
+      openWorkspacePath: original => function (request, ...args) {
+        const identity = requireIdentity()
+        if (service.config?.workspace?.root && typeof request?.path === 'string') {
+          service.assertWorkspacePath(identity, request.path)
+        }
+        return original.call(this, request, ...args)
+      },
+      workspacePathApplications: original => function (request, ...args) {
+        const identity = requireIdentity()
+        if (service.config?.workspace?.root && typeof request?.path === 'string') {
+          service.assertWorkspacePath(identity, request.path)
+        }
+        return original.call(this, request, ...args)
+      },
       page: original => async function (request, ...args) {
         const identity = requireIdentity()
         const ids = guard.authorizeAddress(identity, request)
@@ -640,12 +747,18 @@ export class TenantPolicyService extends Service {
                   : service.canAccessSession(current, key)) allowed.add(key)
               }
               const filterMap = value => Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => allowed.has(key)))
-              yield { ...frame, value: {
-                ...frame.value,
-                queues: filterMap(frame.value?.queues),
-                jobs: filterMap(frame.value?.jobs),
-                projections: filterMap(frame.value?.projections),
-              } }
+              const value = { ...frame.value }
+              for (const key of ['queues', 'jobs', 'projections']) {
+                if (frame.value?.[key] !== undefined) value[key] = filterMap(frame.value[key])
+              }
+              // DSH 0.1 carried queues/jobs alongside the baseline. Preserve
+              // those legacy keys when they are present, while keeping the
+              // DSH 0.2 projections-only shape untouched.
+              if (frame.value?.queues !== undefined) {
+                value.jobs ??= {}
+                value.projections ??= {}
+              }
+              yield { ...frame, value }
             } else if (frame?.sessionId === undefined || (service.config?.workspace?.root
               ? await service.canAccessSessionLocation(current, frame.sessionId)
               : service.canAccessSession(current, frame.sessionId))) {
@@ -685,6 +798,21 @@ export class TenantPolicyService extends Service {
           original.call(this, request, ...args))
       },
       archiveSession: original => function (request, ...args) {
+        const identity = requireIdentity()
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(this, request, ...args))
+      },
+      unarchiveSession: original => function (request, ...args) {
+        const identity = requireIdentity()
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(this, request, ...args))
+      },
+      pinSession: original => function (request, ...args) {
+        const identity = requireIdentity()
+        return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
+          original.call(this, request, ...args))
+      },
+      unpinSession: original => function (request, ...args) {
         const identity = requireIdentity()
         return Promise.resolve(service.assertSessionLocation(identity, request?.sessionId)).then(() =>
           original.call(this, request, ...args))

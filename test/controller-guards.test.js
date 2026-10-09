@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { TenantPolicy } from '../src/policy.js'
 import { TenantPolicyService } from '../src/service.js'
+import { tenantProviderPrefix } from '../src/model-scope.js'
 
 function testService(identity, options = {}) {
   const service = Object.create(TenantPolicyService.prototype)
@@ -130,6 +131,9 @@ test('automatic Workspace controller guard claims and checks resources', async (
   class WorkspaceController {
     async create() { return { workspace: { workspaceId: 'workspace-alice' }, created: true } }
     rename(request) { return { workspace: { workspaceId: request.workspaceId } } }
+    unarchiveSession(request) { return request.sessionId }
+    pinSession(request) { return request.sessionId }
+    unpinSession(request) { return request.sessionId }
   }
 
   const controller = new WorkspaceController()
@@ -137,6 +141,55 @@ test('automatic Workspace controller guard claims and checks resources', async (
   await controller.create({ path: '/tmp/alice' })
   assert.deepEqual(service.policy.assertWorkspaceAccess(alice, 'workspace-alice').userId, 'alice')
   assert.throws(() => controller.rename({ workspaceId: 'workspace-bob', title: 'x' }), /another user/)
+  assert.throws(() => controller.unarchiveSession({ sessionId: 'session-bob' }), /no tenant owner/)
+  assert.throws(() => controller.pinSession({ sessionId: 'session-bob' }), /no tenant owner/)
+  assert.throws(() => controller.unpinSession({ sessionId: 'session-bob' }), /no tenant owner/)
+})
+
+test('DSH 0.2 configuration and model seams stay tenant-scoped', async () => {
+  const alice = { organizationId: 'org-1', userId: 'alice', role: 'member' }
+  const service = testService(alice, {
+    services: {
+      llm: { listConfigurableProviders: () => [
+        { provider: 'openai', settingsNs: 'llm', settingsPath: ['providers', 'openai'] },
+        { provider: `tenant_${'b'.repeat(16)}__openai`, settingsNs: 'llm', settingsPath: ['providers', `tenant_${'b'.repeat(16)}__openai`] },
+      ] },
+    },
+  })
+  const providers = service.ctx.get('llm').listConfigurableProviders()
+  class Llm { listConfigurableProviders() { return providers } }
+  const llm = new Llm()
+  service.ctx.get = name => name === 'llm' ? llm : undefined
+  service.patchLlm(llm)
+  class Settings {
+    describe() { return [
+      { ns: 'llm', value: { providers: { openai: { apiKey: 'x' }, [`tenant_${'b'.repeat(16)}__openai`]: { apiKey: 'y' } } } },
+      { ns: 'shared', value: { enabled: true } },
+    ] }
+    mutate(ns, ops) { this.last = { ns, ops }; return this.describe()[0] }
+    update() { return Promise.resolve() }
+    replace() { return Promise.resolve() }
+  }
+  const settings = new Settings()
+  service.patchSettings(settings)
+  assert.deepEqual(settings.describe().map(row => row.ns), ['llm'])
+  await settings.mutate('llm', [{ op: 'replace', path: ['providers', 'openai', 'apiKey'], value: 'z' }])
+  assert.equal(settings.last.ops[0].path[1], `${tenantProviderPrefix(alice)}openai`)
+  assert.throws(() => settings.update('llm', {}), /Administrator permission/)
+  assert.throws(() => settings.replace('llm', {}), /Administrator permission/)
+  assert.deepEqual(llm.listConfigurableProviders().map(row => row.provider), ['openai'])
+
+  class Session {
+    modelCatalog() { return { routableProviders: ['openai', `${tenantProviderPrefix(alice)}openai`, `tenant_${'b'.repeat(16)}__openai`], groups: [{ id: 'openai' }, { id: `${tenantProviderPrefix(alice)}openai` }, { id: `tenant_${'b'.repeat(16)}__openai` }], failures: [] } }
+    projections(request) { return request.sessionId }
+    openWorkspacePath(request) { return request.path }
+  }
+  const session = new Session()
+  service.policy.claimSession(alice, 'session-alice')
+  service.patchSessionController(session)
+  assert.deepEqual((await session.modelCatalog()).groups.map(row => row.id), ['openai', `${tenantProviderPrefix(alice)}openai`])
+  assert.equal(await session.projections({ sessionId: 'session-alice' }), 'session-alice')
+  assert.throws(() => session.projections({ sessionId: 'session-bob' }), /no tenant owner/)
 })
 
 test('resolving an existing workspace cannot claim its historical ownership', async () => {
