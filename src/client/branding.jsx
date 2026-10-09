@@ -220,11 +220,16 @@ function findBrandTargets() {
   return { name, mark, legacy: false }
 }
 
-function applyDocumentBranding(value) {
+function applyDocumentBranding(value, originalFavicons) {
   document.title = value.badge
   let favicon = document.head.querySelector('[data-dsh-workos-branding="favicon"]')
   if (!value.logo) {
     favicon?.remove()
+    for (const { element, href } of originalFavicons) {
+      if (!element.isConnected) continue
+      if (href === null) element.removeAttribute('href')
+      else element.setAttribute('href', href)
+    }
     return
   }
   if (!favicon) {
@@ -235,17 +240,23 @@ function applyDocumentBranding(value) {
     document.head.appendChild(favicon)
   }
   favicon.setAttribute('href', value.logo)
+  for (const link of document.head.querySelectorAll(FAVICON_SELECTOR)) {
+    if (link !== favicon) link.setAttribute('href', value.logo)
+  }
 }
 
 function installBrandingUnsafe() {
   const originalTitle = document.title
-  const originalFavicons = [...document.head.querySelectorAll(FAVICON_SELECTOR)]
+  const originalFavicons = [...document.head.querySelectorAll(FAVICON_SELECTOR)].map(element => ({
+    element,
+    href: element.getAttribute('href'),
+  }))
   let currentTargets
   let currentValue
   let currentSignature
   const ensure = () => {
     const value = currentValue ?? DEFAULT_BRANDING
-    applyDocumentBranding(value)
+    applyDocumentBranding(value, originalFavicons)
     const targets = findBrandTargets()
     if (!targets.name) return
     const signature = `${value.badge}|${value.logo || ''}|${value.wordmark || ''}`
@@ -302,7 +313,11 @@ function installBrandingUnsafe() {
     clearSvg(currentTargets?.name)
     clearSvg(currentTargets?.mark)
     document.head.querySelector('[data-dsh-workos-branding="favicon"]')?.remove()
-    for (const favicon of originalFavicons) if (!favicon.isConnected) document.head.appendChild(favicon)
+    for (const { element, href } of originalFavicons) {
+      if (!element.isConnected) document.head.appendChild(element)
+      if (href === null) element.removeAttribute('href')
+      else element.setAttribute('href', href)
+    }
     style.remove()
     document.title = originalTitle
   }
