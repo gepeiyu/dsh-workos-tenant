@@ -148,6 +148,21 @@ const en = {
 const styles = `
 .dsh-workos-account { min-width: 0; width: 100%; }
 .dsh-workos-account__menu { display: flex; width: 100%; }
+.dsh-workos-account__menu-list {
+  min-width: 224px !important;
+  padding: 8px !important;
+}
+.dsh-workos-account__menu-list [role="menuitem"] {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-workos-account__menu-list > [role="presentation"] > [role="presentation"] {
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
 .dsh-workos-account__button {
   box-sizing: border-box;
   width: calc(100% + 4px);
@@ -669,11 +684,11 @@ function AccountAction({ wide, t }) {
     >
       <Menu
         className="dsh-workos-account__menu"
+        listClassName="dsh-workos-account__menu-list"
         open={open}
         side="top"
         align={wide ? 'end' : 'start'}
         portal
-        compact
         items={[
           { type: 'label', id: 'user', text: `${t('signedInAs')}: ${primary}` },
           { type: 'label', id: 'organization', text: `${t('organization')}: ${organization}` },
