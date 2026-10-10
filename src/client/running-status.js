@@ -15,6 +15,7 @@ export function installRunningStatus(locale) {
   const register = () => locale.register(NS, {
     zh: { label: current.runningText ?? '', headline: current.heroHeadline ?? '', badge: current.heroBadgeText ?? '' },
     en: { label: current.runningText ?? '', headline: current.heroHeadline ?? '', badge: current.heroBadgeText ?? '' },
+    ja: { label: current.runningText ?? '', headline: current.heroHeadline ?? '', badge: current.heroBadgeText ?? '' },
   })
   let unregister = register()
   locale.translate = (ns, key, params) => {

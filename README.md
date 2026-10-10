@@ -13,6 +13,8 @@ The plugin now contains both the WorkOS login gate and the DSH tenant policy. Cl
 
 It does not modify DeepSeek Harness source code.
 
+The account menu, tenant configuration, and branding settings support English, Chinese, and Japanese, following the language selected in DSH. Japanese must be enabled by a DSH language pack such as `dsh-locale-ja`. Custom branding text is displayed as entered in every language.
+
 ## GitHub release
 
 The project is a standalone repository named `dsh-workos-tenant`. To publish a fresh checkout to GitHub, create an empty repository with that name and connect it with:

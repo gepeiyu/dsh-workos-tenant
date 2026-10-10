@@ -5,6 +5,7 @@ import { customizeRunningLabel, installRunningStatus } from '../src/client/runni
 test('custom running text preserves elapsed time and treats special characters literally', () => {
   assert.equal(customizeRunningLabel('深度求索中，用时 8秒 ···', '深度求索中', '<处理中> {duration} $&'), '<处理中> {duration} $&，用时 8秒 ···')
   assert.equal(customizeRunningLabel('Deep diving for 2m 3s ···', 'Deep diving', 'Working'), 'Working for 2m 3s ···')
+  assert.equal(customizeRunningLabel('8秒 深く考えています ···', '深く考えています', '処理中'), '8秒 処理中 ···')
   assert.equal(customizeRunningLabel('深度求索中', '深度求索中', '执行中'), '执行中')
   assert.equal(customizeRunningLabel('Deep diving', 'Deep diving', null), 'Deep diving')
 })
@@ -17,7 +18,9 @@ test('running status refreshes mounted labels, keeps other translations, and res
   const dictionaries = new Set()
   const locale = {
     language: 'zh',
-    register(ns) {
+    register(ns, values) {
+      assert.deepEqual(Object.keys(values).sort(), ['en', 'ja', 'zh'])
+      assert.deepEqual(values.ja, values.en)
       dictionaries.add(ns)
       revision++
       return () => { dictionaries.delete(ns); revision++ }
@@ -28,9 +31,12 @@ test('running status refreshes mounted labels, keeps other translations, and res
         if (key === 'hero.preview') return this.language === 'zh' ? '预览版' : 'Preview'
       }
       if (ns !== 'chat') return key
-      const text = this.language === 'zh' ? '深度求索中' : 'Deep diving'
+      const text = { zh: '深度求索中', en: 'Deep diving', ja: '深く考えています' }[this.language]
       if (key === 'chat.deepDiving') return text
-      if (key === 'chat.deepDivingFor') return this.language === 'zh' ? `${text}，用时 ${params.duration} ···` : `${text} for ${params.duration} ···`
+      if (key === 'chat.deepDivingFor') {
+        if (this.language === 'ja') return `${params.duration} ${text} ···`
+        return this.language === 'zh' ? `${text}，用时 ${params.duration} ···` : `${text} for ${params.duration} ···`
+      }
       return key
     },
   }
@@ -46,8 +52,12 @@ test('running status refreshes mounted labels, keeps other translations, and res
   assert.equal(revision, savedRevision)
   locale.language = 'en'
   assert.equal(locale.translate('chat', 'chat.deepDivingFor', { duration: '9s' }), '处理 $& {duration} for 9s ···')
+  locale.language = 'ja'
+  assert.equal(locale.translate('chat', 'chat.deepDivingFor', { duration: '9秒' }), '9秒 处理 $& {duration} ···')
   status.update({ runningText: null, runningIcon: 'whale' })
   assert.ok(revision > savedRevision)
+  assert.equal(locale.translate('chat', 'chat.deepDiving'), '深く考えています')
+  locale.language = 'en'
   assert.equal(locale.translate('chat', 'chat.deepDiving'), 'Deep diving')
   status.dispose()
   assert.equal(locale.translate, originalTranslate)
