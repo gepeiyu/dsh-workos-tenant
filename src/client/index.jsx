@@ -33,6 +33,15 @@ const zh = {
   brandWordmarkHint: '替换 DeepSeek 文字区域，建议使用横向透明图片。',
   brandBadge: 'HARNESS 徽章文字',
   brandBadgeHint: '最多 30 个字符，同时同步浏览器标签页标题。',
+  brandRunning: '执行状态提示',
+  brandRunningIcon: '提示图标',
+  brandRunningIcon_whale: '鲸鱼尾巴（默认）',
+  brandRunningIcon_spinner: '转圈',
+  brandRunningIcon_dots: '省略号 …',
+  brandRunningText: '提示文字',
+  brandRunningDefaultText: '深度求索中',
+  brandRunningTextHint: '自定义输入框上方的执行提示文字，用时会自动显示。留空恢复默认文字。',
+  brandRunningPreview: '执行提示预览',
   brandDefault: '使用默认图案',
   brandChooseImage: '选择本地图片',
   brandReset: '恢复默认',
@@ -100,6 +109,15 @@ const en = {
   brandWordmarkHint: 'Replace the DeepSeek wordmark. A wide transparent image works best.',
   brandBadge: 'HARNESS badge text',
   brandBadgeHint: 'Up to 30 characters; the browser tab title follows this value.',
+  brandRunning: 'Running status',
+  brandRunningIcon: 'Status icon',
+  brandRunningIcon_whale: 'Whale tail (default)',
+  brandRunningIcon_spinner: 'Spinner',
+  brandRunningIcon_dots: 'Ellipsis …',
+  brandRunningText: 'Status text',
+  brandRunningDefaultText: 'Deep diving',
+  brandRunningTextHint: 'Customize the running message above the composer. Elapsed time is added automatically. Leave blank for the default text.',
+  brandRunningPreview: 'Running status preview',
   brandDefault: 'Default artwork',
   brandChooseImage: 'Choose local image',
   brandReset: 'Restore default',
@@ -728,7 +746,7 @@ export function apply(ctx) {
   ctx.effect(() => installSessionVisibility(ctx), 'workos-account: session visibility')
   ctx.effect(installStyles, 'workos-account: styles')
   ctx.effect(() => installSettingsVisibility(ctx), 'workos-account: settings visibility')
-  ctx.effect(installBranding, 'workos-account: branding')
+  ctx.effect(() => installBranding(ctx), 'workos-account: branding')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workos-account: dictionaries')
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',

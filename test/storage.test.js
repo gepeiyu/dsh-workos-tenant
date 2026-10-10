@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -29,10 +30,11 @@ test('local tenant storage persists encrypted branding separately from tenant st
   const directory = mkdtempSync(join(tmpdir(), 'dsh-tenant-branding-'))
   const filePath = join(directory, 'state.json')
   const storage = new LocalTenantStorage({ filePath, encryptionKey: 'b'.repeat(32) })
-  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null })
+  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null, runningIcon: 'spinner', runningText: '正在处理' })
   assert.equal(readFileSync(`${filePath}.branding`, 'utf8').includes('ACME'), false)
   assert.deepEqual(await storage.loadBranding(), {
     badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null,
+    runningIcon: 'spinner', runningText: '正在处理',
   })
   rmSync(directory, { recursive: true, force: true })
 })
@@ -77,6 +79,49 @@ test('D1 storage sends encrypted state through the Cloudflare query API', async 
   const brandingInsert = calls.find(call => call.body.sql.includes('dsh_tenant_branding') && call.body.sql.includes('INSERT INTO'))
   assert.ok(brandingInsert)
   assert.equal(brandingInsert.body.params[0], 'platform')
-  assert.deepEqual(normalizeBranding({}), { badge: 'HARNESS', logo: null, wordmark: null })
+  assert.deepEqual(normalizeBranding({}), { badge: 'HARNESS', logo: null, wordmark: null, runningIcon: 'whale', runningText: null })
   assert.throws(() => normalizeBranding({ logo: 'https://example.com/logo.png' }), TenantStorageError)
+})
+
+test('running status defaults upgrade legacy local branding and validate custom values', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-legacy-branding-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const filePath = join(directory, 'state.json')
+  writeFileSync(`${filePath}.branding`, JSON.stringify({ badge: 'LEGACY', logo: null, wordmark: null }))
+  const storage = new LocalTenantStorage({ filePath })
+  assert.deepEqual(await storage.loadBranding(), {
+    badge: 'LEGACY', logo: null, wordmark: null, runningIcon: 'whale', runningText: null,
+  })
+  assert.equal(normalizeBranding({ runningText: '   ' }).runningText, null)
+  assert.throws(() => normalizeBranding({ runningIcon: 'upload' }), TenantStorageError)
+  assert.throws(() => normalizeBranding({ runningText: {} }), TenantStorageError)
+})
+
+test('D1 upgrades an existing branding table and round-trips custom running status', async t => {
+  const db = new DatabaseSync(':memory:')
+  t.after(() => db.close())
+  db.exec(`CREATE TABLE dsh_tenant_branding (
+    scope_id TEXT PRIMARY KEY, badge TEXT NOT NULL, logo TEXT, wordmark TEXT, updated_at TEXT NOT NULL
+  ); INSERT INTO dsh_tenant_branding VALUES ('platform', 'LEGACY', NULL, NULL, '2026-01-01');`)
+  const storage = new D1TenantStorage({
+    accountId: 'account', databaseId: 'database', apiToken: 'token', encryptionKey: 'z'.repeat(32),
+  })
+  const queries = []
+  storage.query = async (sql, params = []) => {
+    queries.push(sql)
+    const statement = db.prepare(sql)
+    return /^(SELECT|PRAGMA)/.test(sql) ? statement.all(...params) : (statement.run(...params), [])
+  }
+  const [legacy] = await Promise.all([storage.loadBranding(), storage.loadBranding()])
+  assert.equal(legacy.badge, 'LEGACY')
+  assert.equal(legacy.runningIcon, 'whale')
+  assert.equal(legacy.runningText, null)
+  assert.equal(queries.filter(sql => sql.startsWith('ALTER TABLE')).length, 2)
+  for (const runningIcon of ['spinner', 'dots', 'whale']) {
+    const branding = { ...legacy, runningIcon, runningText: '<处理> {duration} $&' }
+    await storage.saveBranding(branding)
+    assert.deepEqual(await storage.loadBranding(), branding)
+  }
+  await storage.saveBranding({ ...legacy, runningText: '' })
+  assert.equal((await storage.loadBranding()).runningText, null)
 })

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { DEFAULT_BRANDING, RUNNING_ICONS } from '../branding.js'
+import { installRunningStatus, runningStatusStyles } from './running-status.js'
 
 const LEGACY_BRAND_SELECTOR = 'svg[viewBox="0 0 182 24"]'
 const BRAND_NAME_SELECTOR = 'svg[viewBox="26 0 156 24"]'
@@ -7,7 +9,6 @@ const BADGE_TEXT_SELECTOR = 'g[clip-path*="badge"]'
 const WHALE_SELECTOR = 'g[clip-path*="whale"]'
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const MAX_IMAGE_EDGE = 256
-const DEFAULT_BRANDING = { badge: 'HARNESS', logo: null, wordmark: null }
 const CHANGE_EVENT = 'dsh-workos-tenant:branding-change'
 const FAVICON_SELECTOR = 'link[rel~="icon"]'
 
@@ -73,6 +74,16 @@ function ImageField({ kind, value, onChange, t }) {
   )
 }
 
+function RunningIcon({ icon }) {
+  return (
+    <span className="dsh-workos-running-icon" data-icon={icon} aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none">
+        <path d="M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.94 8.88 8.43 9.6 8.43C11.285 8.43 12.106 8.281 12.685 8.104C13.71 7.791 14.585 6.768 15.055 5.945C15.137 5.803 14.99 5.641 14.829 5.671C13.829 5.86 12.828 5.376 11.827 4.978C10.659 4.514 9.491 4.707 8.935 4.876C8.805 4.915 8.658 4.819 8.636 4.686C8.468 3.643 7.405 2.615 5.498 2.238C4.54 2.048 3.748 1.574 3.347 1.202C3.252 1.113 3.088 1.125 3.03 1.242C2.628 2.059 2.168 3.82 5.248 6.115C5.82 6.494 6.31 6.785 6.574 7.637C6.72 8.104 6.157 9.168 6.061 9.368C5.157 11.27 5.089 12.19 4.926 13.742" stroke="currentColor" />
+      </svg>
+    </span>
+  )
+}
+
 export function BrandingSettings({ t }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
   const [status, setStatus] = useState('loading')
@@ -85,7 +96,7 @@ export function BrandingSettings({ t }) {
         const value = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(value.detail || t('brandLoadFailed'))
         if (active) {
-          setBranding(value.branding ?? DEFAULT_BRANDING)
+          setBranding({ ...DEFAULT_BRANDING, ...value.branding })
           setStatus('ready')
         }
       })
@@ -109,7 +120,7 @@ export function BrandingSettings({ t }) {
     }).then(async response => {
       const value = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(value.detail || value.error || t('brandSaveFailed'))
-      setBranding(value.branding ?? DEFAULT_BRANDING)
+      setBranding({ ...DEFAULT_BRANDING, ...value.branding })
       setStatus('saved')
       window.dispatchEvent(new CustomEvent(CHANGE_EVENT))
     }).catch(reason => {
@@ -132,6 +143,28 @@ export function BrandingSettings({ t }) {
         <input className="dsh-workos-settings__input" value={branding.badge} maxLength={30} onChange={event => setBranding(current => ({ ...current, badge: event.target.value }))} />
         <span className="dsh-workos-settings__hint">{t('brandBadgeHint')}</span>
       </label>
+      <div className="dsh-workos-brand__running">
+        <h4 className="dsh-workos-settings__label">{t('brandRunning')}</h4>
+        <fieldset className="dsh-workos-brand__icons">
+          <legend className="dsh-workos-settings__label">{t('brandRunningIcon')}</legend>
+          {RUNNING_ICONS.map(icon => (
+            <label key={icon} className="dsh-workos-brand__icon-option">
+              <input type="radio" name="runningIcon" value={icon} checked={branding.runningIcon === icon} onChange={() => setBranding(current => ({ ...current, runningIcon: icon }))} />
+              <RunningIcon icon={icon} />
+              <span>{t(`brandRunningIcon_${icon}`)}</span>
+            </label>
+          ))}
+        </fieldset>
+        <label className="dsh-workos-settings__field dsh-workos-settings__field--wide">
+          <span className="dsh-workos-settings__label">{t('brandRunningText')}</span>
+          <input className="dsh-workos-settings__input" value={branding.runningText ?? ''} placeholder={t('brandRunningDefaultText')} onChange={event => setBranding(current => ({ ...current, runningText: event.target.value }))} />
+          <span className="dsh-workos-settings__hint">{t('brandRunningTextHint')}</span>
+        </label>
+        <div className="dsh-workos-brand__running-preview" aria-label={t('brandRunningPreview')}>
+          <RunningIcon icon={branding.runningIcon} />
+          <span>{branding.runningText?.trim() || t('brandRunningDefaultText')}</span>
+        </div>
+      </div>
       <div className="dsh-workos-brand__actions">
         <button type="submit" className="dsh-workos-brand__button dsh-workos-brand__button--primary" disabled={status === 'saving'}>{status === 'saving' ? t('brandSaving') : t('brandSave')}</button>
         <button type="button" className="dsh-workos-brand__button" onClick={() => setBranding(DEFAULT_BRANDING)}>{t('brandResetAll')}</button>
@@ -245,7 +278,8 @@ function applyDocumentBranding(value, originalFavicons) {
   }
 }
 
-function installBrandingUnsafe() {
+function installBrandingUnsafe(ctx) {
+  const runningStatus = installRunningStatus(ctx.locale)
   const originalTitle = document.title
   const originalFavicons = [...document.head.querySelectorAll(FAVICON_SELECTOR)].map(element => ({
     element,
@@ -256,6 +290,7 @@ function installBrandingUnsafe() {
   let currentSignature
   const ensure = () => {
     const value = currentValue ?? DEFAULT_BRANDING
+    runningStatus.update(value)
     applyDocumentBranding(value, originalFavicons)
     const targets = findBrandTargets()
     if (!targets.name) return
@@ -284,6 +319,7 @@ function installBrandingUnsafe() {
   const style = document.createElement('style')
   style.dataset.plugin = 'dsh-workos-tenant/branding'
   style.textContent = `
+    ${runningStatusStyles}
     .dsh-workos-brand__intro { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; margin: 0 0 14px; }
     .dsh-workos-brand__field { display: flex; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
     .dsh-workos-brand__copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
@@ -298,6 +334,16 @@ function installBrandingUnsafe() {
     .dsh-workos-brand__button--primary { background: var(--dsw-alias-state-business-primary); border-color: transparent; color: white; }
     .dsh-workos-brand__button--danger { color: var(--dsw-alias-label-error); }
     .dsh-workos-brand__actions { display: flex; align-items: center; gap: 10px; padding-top: 16px; }
+    .dsh-workos-brand__running { border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 16px; padding-top: 16px; }
+    .dsh-workos-brand__running h4 { margin: 0 0 12px; }
+    .dsh-workos-brand__icons { border: 0; padding: 0; margin: 0 0 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .dsh-workos-brand__icons legend { margin-bottom: 8px; }
+    .dsh-workos-brand__icon-option { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; font-size: 12px; cursor: pointer; }
+    .dsh-workos-brand__icon-option:has(input:checked) { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); }
+    .dsh-workos-brand__icon-option input { margin: 0; accent-color: var(--dsw-alias-state-business-primary); }
+    .dsh-workos-brand__running-preview { display: flex; align-items: center; gap: 6px; margin-top: 12px; min-width: 0; color: var(--dsw-alias-label-deep-diving, var(--dsw-alias-state-business-primary)); font-size: 12px; }
+    .dsh-workos-brand__running-preview > span:last-child { overflow-wrap: anywhere; white-space: pre-wrap; }
+    [data-chat-running] [class$="_runningText"] { overflow-wrap: anywhere; }
     .dsh-workos-brand__badge { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; padding: 0 1px; color: var(--dsw-alias-label-primary-inverted, #fff); font-family: inherit; font-size: 10px; font-weight: 400; line-height: 14px; letter-spacing: .4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     @media (max-width: 680px) { .dsh-workos-brand__field { align-items: flex-start; flex-direction: column; } .dsh-workos-brand__controls { width: 100%; flex-wrap: wrap; } }
   `
@@ -310,6 +356,7 @@ function installBrandingUnsafe() {
   return () => {
     window.clearInterval(timer)
     window.removeEventListener(CHANGE_EVENT, onChange)
+    runningStatus.dispose()
     clearSvg(currentTargets?.name)
     clearSvg(currentTargets?.mark)
     document.head.querySelector('[data-dsh-workos-branding="favicon"]')?.remove()
@@ -328,10 +375,10 @@ function installBrandingUnsafe() {
  * client plugin before its document chrome is ready, so a DOM failure here
  * must not abort the whole client plugin tree.
  */
-export function installBranding() {
+export function installBranding(ctx) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return
   try {
-    return installBrandingUnsafe()
+    return installBrandingUnsafe(ctx)
   } catch (error) {
     console.error('[dsh-workos-tenant] branding enhancement unavailable', error)
   }

@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { DEFAULT_BRANDING, RUNNING_ICONS } from './branding.js'
 
 const STATE_VERSION = 1
 const DEFAULT_ROW_ID = 'tenant-policy'
 const PLATFORM_BRANDING_ID = 'platform'
-const DEFAULT_BRANDING = Object.freeze({ badge: 'HARNESS', logo: null, wordmark: null })
 // Keep both images comfortably below D1's 1 MB row limit when stored together.
 const MAX_BRANDING_IMAGE_BYTES = 380_000
 
@@ -33,7 +33,15 @@ export function normalizeBranding(value = {}) {
     : DEFAULT_BRANDING.badge
   const logo = brandingText(value.logo, 'logo', MAX_BRANDING_IMAGE_BYTES)
   const wordmark = brandingText(value.wordmark, 'wordmark', MAX_BRANDING_IMAGE_BYTES)
-  return { badge, logo, wordmark }
+  const runningIcon = value.runningIcon ?? DEFAULT_BRANDING.runningIcon
+  if (!RUNNING_ICONS.includes(runningIcon)) {
+    throw new TenantStorageError('runningIcon must be whale, spinner, or dots')
+  }
+  if (value.runningText != null && typeof value.runningText !== 'string') {
+    throw new TenantStorageError('runningText must be a string')
+  }
+  const runningText = value.runningText?.trim() || DEFAULT_BRANDING.runningText
+  return { badge, logo, wordmark, runningIcon, runningText }
 }
 
 function encryptionKey(value) {
@@ -168,19 +176,44 @@ export class D1TenantStorage {
   }
 
   async ensureBrandingTable() {
+    if (this.brandingTableReady) return this.brandingTableReady
+    this.brandingTableReady = this.initializeBrandingTable().catch(error => {
+      this.brandingTableReady = undefined
+      throw error
+    })
+    return this.brandingTableReady
+  }
+
+  async initializeBrandingTable() {
     await this.query(`CREATE TABLE IF NOT EXISTS dsh_tenant_branding (
       scope_id TEXT PRIMARY KEY,
       badge TEXT NOT NULL,
       logo TEXT,
       wordmark TEXT,
+      running_icon TEXT NOT NULL DEFAULT 'whale',
+      running_text TEXT,
       updated_at TEXT NOT NULL
     )`)
+    const columns = await this.query('PRAGMA table_info(dsh_tenant_branding)')
+    for (const [name, definition] of [
+      ['running_icon', "TEXT NOT NULL DEFAULT 'whale'"],
+      ['running_text', 'TEXT'],
+    ]) {
+      if (columns.some(column => column.name === name)) continue
+      try {
+        await this.query(`ALTER TABLE dsh_tenant_branding ADD COLUMN ${name} ${definition}`)
+      } catch (error) {
+        // Another server may have migrated this shared database concurrently.
+        const current = await this.query('PRAGMA table_info(dsh_tenant_branding)')
+        if (!current.some(column => column.name === name)) throw error
+      }
+    }
   }
 
   async loadBranding() {
     await this.ensureBrandingTable()
     const rows = await this.query(
-      'SELECT badge, logo, wordmark FROM dsh_tenant_branding WHERE scope_id = ?',
+      'SELECT badge, logo, wordmark, running_icon AS runningIcon, running_text AS runningText FROM dsh_tenant_branding WHERE scope_id = ?',
       [PLATFORM_BRANDING_ID],
     )
     return normalizeBranding(rows[0] ?? DEFAULT_BRANDING)
@@ -191,14 +224,16 @@ export class D1TenantStorage {
     this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
       await this.ensureBrandingTable()
       await this.query(
-        `INSERT INTO dsh_tenant_branding (scope_id, badge, logo, wordmark, updated_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO dsh_tenant_branding (scope_id, badge, logo, wordmark, running_icon, running_text, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(scope_id) DO UPDATE SET
            badge = excluded.badge,
            logo = excluded.logo,
            wordmark = excluded.wordmark,
+           running_icon = excluded.running_icon,
+           running_text = excluded.running_text,
            updated_at = excluded.updated_at`,
-        [PLATFORM_BRANDING_ID, value.badge, value.logo, value.wordmark, new Date().toISOString()],
+        [PLATFORM_BRANDING_ID, value.badge, value.logo, value.wordmark, value.runningIcon, value.runningText, new Date().toISOString()],
       )
     })
     return this.writeQueue
