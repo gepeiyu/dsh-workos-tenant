@@ -123,6 +123,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - Cloudflare D1 REST persistence when configured, with encrypted state payloads.
 - Browser-compressed branding images persisted in the selected tenant storage; local mode uses an encrypted sidecar file and D1 mode creates its branding table automatically on first use.
 - Branding settings also customize the running status above the composer: choose the default whale tail, a spinner, or an ellipsis, and enter any status text. Elapsed time remains automatic; blank text restores the localized default. Saved settings apply immediately and survive reloads.
+- The new conversation welcome area uses the configured brand logo and supports custom headline and preview badge text, plus a badge visibility switch. Blank text restores the localized defaults.
 - Pure Node tests for the policy and storage boundary.
 
 The policy keeps an in-memory cache for synchronous DSH controller and LLM calls, then writes changes through the selected storage adapter. D1 writes are serialized; deploy multiple DSH replicas only after adding a stronger concurrency strategy.

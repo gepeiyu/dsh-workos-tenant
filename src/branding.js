@@ -6,4 +6,7 @@ export const DEFAULT_BRANDING = Object.freeze({
   wordmark: null,
   runningIcon: 'whale',
   runningText: null,
+  heroHeadline: null,
+  heroBadgeText: null,
+  heroBadgeVisible: true,
 })

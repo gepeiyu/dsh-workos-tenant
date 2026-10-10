@@ -27,6 +27,13 @@ function brandingText(value, label, max) {
   return value
 }
 
+function optionalBrandingText(value, label) {
+  if (value != null && typeof value !== 'string') {
+    throw new TenantStorageError(`${label} must be a string`)
+  }
+  return value?.trim() || null
+}
+
 export function normalizeBranding(value = {}) {
   const badge = typeof value.badge === 'string' && value.badge.trim()
     ? value.badge.trim().slice(0, 30)
@@ -37,11 +44,14 @@ export function normalizeBranding(value = {}) {
   if (!RUNNING_ICONS.includes(runningIcon)) {
     throw new TenantStorageError('runningIcon must be whale, spinner, or dots')
   }
-  if (value.runningText != null && typeof value.runningText !== 'string') {
-    throw new TenantStorageError('runningText must be a string')
+  const runningText = optionalBrandingText(value.runningText, 'runningText')
+  const heroHeadline = optionalBrandingText(value.heroHeadline, 'heroHeadline')
+  const heroBadgeText = optionalBrandingText(value.heroBadgeText, 'heroBadgeText')
+  const heroBadgeVisible = value.heroBadgeVisible ?? DEFAULT_BRANDING.heroBadgeVisible
+  if (typeof heroBadgeVisible !== 'boolean') {
+    throw new TenantStorageError('heroBadgeVisible must be a boolean')
   }
-  const runningText = value.runningText?.trim() || DEFAULT_BRANDING.runningText
-  return { badge, logo, wordmark, runningIcon, runningText }
+  return { badge, logo, wordmark, runningIcon, runningText, heroHeadline, heroBadgeText, heroBadgeVisible }
 }
 
 function encryptionKey(value) {
@@ -192,12 +202,18 @@ export class D1TenantStorage {
       wordmark TEXT,
       running_icon TEXT NOT NULL DEFAULT 'whale',
       running_text TEXT,
+      hero_headline TEXT,
+      hero_badge_text TEXT,
+      hero_badge_visible INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL
     )`)
     const columns = await this.query('PRAGMA table_info(dsh_tenant_branding)')
     for (const [name, definition] of [
       ['running_icon', "TEXT NOT NULL DEFAULT 'whale'"],
       ['running_text', 'TEXT'],
+      ['hero_headline', 'TEXT'],
+      ['hero_badge_text', 'TEXT'],
+      ['hero_badge_visible', 'INTEGER NOT NULL DEFAULT 1'],
     ]) {
       if (columns.some(column => column.name === name)) continue
       try {
@@ -213,10 +229,13 @@ export class D1TenantStorage {
   async loadBranding() {
     await this.ensureBrandingTable()
     const rows = await this.query(
-      'SELECT badge, logo, wordmark, running_icon AS runningIcon, running_text AS runningText FROM dsh_tenant_branding WHERE scope_id = ?',
+      `SELECT badge, logo, wordmark, running_icon AS runningIcon, running_text AS runningText,
+       hero_headline AS heroHeadline, hero_badge_text AS heroBadgeText, hero_badge_visible AS heroBadgeVisible
+       FROM dsh_tenant_branding WHERE scope_id = ?`,
       [PLATFORM_BRANDING_ID],
     )
-    return normalizeBranding(rows[0] ?? DEFAULT_BRANDING)
+    const row = rows[0]
+    return normalizeBranding(row ? { ...row, heroBadgeVisible: row.heroBadgeVisible == null ? undefined : Boolean(row.heroBadgeVisible) } : DEFAULT_BRANDING)
   }
 
   saveBranding(branding) {
@@ -224,16 +243,20 @@ export class D1TenantStorage {
     this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
       await this.ensureBrandingTable()
       await this.query(
-        `INSERT INTO dsh_tenant_branding (scope_id, badge, logo, wordmark, running_icon, running_text, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO dsh_tenant_branding (scope_id, badge, logo, wordmark, running_icon, running_text, hero_headline, hero_badge_text, hero_badge_visible, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(scope_id) DO UPDATE SET
            badge = excluded.badge,
            logo = excluded.logo,
            wordmark = excluded.wordmark,
            running_icon = excluded.running_icon,
            running_text = excluded.running_text,
+           hero_headline = excluded.hero_headline,
+           hero_badge_text = excluded.hero_badge_text,
+           hero_badge_visible = excluded.hero_badge_visible,
            updated_at = excluded.updated_at`,
-        [PLATFORM_BRANDING_ID, value.badge, value.logo, value.wordmark, value.runningIcon, value.runningText, new Date().toISOString()],
+        [PLATFORM_BRANDING_ID, value.badge, value.logo, value.wordmark, value.runningIcon, value.runningText,
+          value.heroHeadline, value.heroBadgeText, value.heroBadgeVisible ? 1 : 0, new Date().toISOString()],
       )
     })
     return this.writeQueue

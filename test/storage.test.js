@@ -30,11 +30,12 @@ test('local tenant storage persists encrypted branding separately from tenant st
   const directory = mkdtempSync(join(tmpdir(), 'dsh-tenant-branding-'))
   const filePath = join(directory, 'state.json')
   const storage = new LocalTenantStorage({ filePath, encryptionKey: 'b'.repeat(32) })
-  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null, runningIcon: 'spinner', runningText: '正在处理' })
+  await storage.saveBranding({ badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null, runningIcon: 'spinner', runningText: '正在处理', heroHeadline: '欢迎使用', heroBadgeText: '内测', heroBadgeVisible: false })
   assert.equal(readFileSync(`${filePath}.branding`, 'utf8').includes('ACME'), false)
   assert.deepEqual(await storage.loadBranding(), {
     badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null,
     runningIcon: 'spinner', runningText: '正在处理',
+    heroHeadline: '欢迎使用', heroBadgeText: '内测', heroBadgeVisible: false,
   })
   rmSync(directory, { recursive: true, force: true })
 })
@@ -79,7 +80,7 @@ test('D1 storage sends encrypted state through the Cloudflare query API', async 
   const brandingInsert = calls.find(call => call.body.sql.includes('dsh_tenant_branding') && call.body.sql.includes('INSERT INTO'))
   assert.ok(brandingInsert)
   assert.equal(brandingInsert.body.params[0], 'platform')
-  assert.deepEqual(normalizeBranding({}), { badge: 'HARNESS', logo: null, wordmark: null, runningIcon: 'whale', runningText: null })
+  assert.deepEqual(normalizeBranding({}), { badge: 'HARNESS', logo: null, wordmark: null, runningIcon: 'whale', runningText: null, heroHeadline: null, heroBadgeText: null, heroBadgeVisible: true })
   assert.throws(() => normalizeBranding({ logo: 'https://example.com/logo.png' }), TenantStorageError)
 })
 
@@ -91,10 +92,16 @@ test('running status defaults upgrade legacy local branding and validate custom 
   const storage = new LocalTenantStorage({ filePath })
   assert.deepEqual(await storage.loadBranding(), {
     badge: 'LEGACY', logo: null, wordmark: null, runningIcon: 'whale', runningText: null,
+    heroHeadline: null, heroBadgeText: null, heroBadgeVisible: true,
   })
   assert.equal(normalizeBranding({ runningText: '   ' }).runningText, null)
   assert.throws(() => normalizeBranding({ runningIcon: 'upload' }), TenantStorageError)
   assert.throws(() => normalizeBranding({ runningText: {} }), TenantStorageError)
+  assert.throws(() => normalizeBranding({ heroHeadline: {} }), TenantStorageError)
+  assert.throws(() => normalizeBranding({ heroBadgeText: 1 }), TenantStorageError)
+  assert.throws(() => normalizeBranding({ heroBadgeVisible: 'false' }), TenantStorageError)
+  assert.equal(normalizeBranding({ heroHeadline: '   ', heroBadgeText: '' }).heroHeadline, null)
+  assert.equal(normalizeBranding({ heroBadgeVisible: false }).heroBadgeVisible, false)
 })
 
 test('D1 upgrades an existing branding table and round-trips custom running status', async t => {
@@ -116,9 +123,12 @@ test('D1 upgrades an existing branding table and round-trips custom running stat
   assert.equal(legacy.badge, 'LEGACY')
   assert.equal(legacy.runningIcon, 'whale')
   assert.equal(legacy.runningText, null)
-  assert.equal(queries.filter(sql => sql.startsWith('ALTER TABLE')).length, 2)
+  assert.equal(legacy.heroHeadline, null)
+  assert.equal(legacy.heroBadgeText, null)
+  assert.equal(legacy.heroBadgeVisible, true)
+  assert.equal(queries.filter(sql => sql.startsWith('ALTER TABLE')).length, 5)
   for (const runningIcon of ['spinner', 'dots', 'whale']) {
-    const branding = { ...legacy, runningIcon, runningText: '<处理> {duration} $&' }
+    const branding = { ...legacy, runningIcon, runningText: '<处理> {duration} $&', heroHeadline: '<欢迎> {name}', heroBadgeText: '内测 $&', heroBadgeVisible: runningIcon === 'whale' }
     await storage.saveBranding(branding)
     assert.deepEqual(await storage.loadBranding(), branding)
   }

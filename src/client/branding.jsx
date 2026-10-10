@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { FISH_LOGO_PATH, FISH_LOGO_VIEWBOX } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DEFAULT_BRANDING, RUNNING_ICONS } from '../branding.js'
 import { installRunningStatus, runningStatusStyles } from './running-status.js'
+import { installHeroLogo } from './hero-branding.js'
 
 const LEGACY_BRAND_SELECTOR = 'svg[viewBox="0 0 182 24"]'
 const BRAND_NAME_SELECTOR = 'svg[viewBox="26 0 156 24"]'
@@ -84,6 +86,11 @@ function RunningIcon({ icon }) {
   )
 }
 
+function HeroLogo({ logo, size = 34, className }) {
+  if (logo) return <img className={className} src={logo} alt="" aria-hidden="true" width={size} height={size} style={{ objectFit: 'contain', animation: 'none' }} />
+  return <svg className={className} width={size} height={size} viewBox={`0 0 ${FISH_LOGO_VIEWBOX.width} ${FISH_LOGO_VIEWBOX.height}`} aria-hidden="true"><path d={FISH_LOGO_PATH} fill="currentColor" /></svg>
+}
+
 export function BrandingSettings({ t }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
   const [status, setStatus] = useState('loading')
@@ -143,6 +150,29 @@ export function BrandingSettings({ t }) {
         <input className="dsh-workos-settings__input" value={branding.badge} maxLength={30} onChange={event => setBranding(current => ({ ...current, badge: event.target.value }))} />
         <span className="dsh-workos-settings__hint">{t('brandBadgeHint')}</span>
       </label>
+      <div className="dsh-workos-brand__hero">
+        <h4 className="dsh-workos-settings__label">{t('brandHero')}</h4>
+        <p className="dsh-workos-settings__hint">{t('brandHeroLogoHint')}</p>
+        <label className="dsh-workos-settings__field dsh-workos-settings__field--wide">
+          <span className="dsh-workos-settings__label">{t('brandHeroHeadline')}</span>
+          <input className="dsh-workos-settings__input" value={branding.heroHeadline ?? ''} placeholder={t('brandHeroHeadlineDefault')} onChange={event => setBranding(current => ({ ...current, heroHeadline: event.target.value }))} />
+          <span className="dsh-workos-settings__hint">{t('brandHeroTextHint')}</span>
+        </label>
+        <label className="dsh-workos-settings__field dsh-workos-settings__field--wide">
+          <span className="dsh-workos-settings__label">{t('brandHeroBadgeText')}</span>
+          <input className="dsh-workos-settings__input" value={branding.heroBadgeText ?? ''} placeholder={t('brandHeroBadgeDefault')} onChange={event => setBranding(current => ({ ...current, heroBadgeText: event.target.value }))} />
+          <span className="dsh-workos-settings__hint">{t('brandHeroTextHint')}</span>
+        </label>
+        <label className="dsh-workos-brand__toggle">
+          <input type="checkbox" checked={branding.heroBadgeVisible} onChange={event => setBranding(current => ({ ...current, heroBadgeVisible: event.target.checked }))} />
+          <span>{t('brandHeroBadgeVisible')}</span>
+        </label>
+        <div className="dsh-workos-brand__hero-preview" aria-label={t('brandHeroPreview')}>
+          <HeroLogo logo={branding.logo} />
+          <span>{branding.heroHeadline?.trim() || t('brandHeroHeadlineDefault')}</span>
+          {branding.heroBadgeVisible && <span className="dsh-workos-brand__hero-badge">{branding.heroBadgeText?.trim() || t('brandHeroBadgeDefault')}</span>}
+        </div>
+      </div>
       <div className="dsh-workos-brand__running">
         <h4 className="dsh-workos-settings__label">{t('brandRunning')}</h4>
         <fieldset className="dsh-workos-brand__icons">
@@ -280,6 +310,9 @@ function applyDocumentBranding(value, originalFavicons) {
 
 function installBrandingUnsafe(ctx) {
   const runningStatus = installRunningStatus(ctx.locale)
+  const heroLogo = installHeroLogo(ctx.slots, logo => function HeroBrandMark(props) {
+    return <HeroLogo {...props} logo={logo} />
+  })
   const originalTitle = document.title
   const originalFavicons = [...document.head.querySelectorAll(FAVICON_SELECTOR)].map(element => ({
     element,
@@ -291,6 +324,7 @@ function installBrandingUnsafe(ctx) {
   const ensure = () => {
     const value = currentValue ?? DEFAULT_BRANDING
     runningStatus.update(value)
+    heroLogo.update(value.logo)
     applyDocumentBranding(value, originalFavicons)
     const targets = findBrandTargets()
     if (!targets.name) return
@@ -334,8 +368,16 @@ function installBrandingUnsafe(ctx) {
     .dsh-workos-brand__button--primary { background: var(--dsw-alias-state-business-primary); border-color: transparent; color: white; }
     .dsh-workos-brand__button--danger { color: var(--dsw-alias-label-error); }
     .dsh-workos-brand__actions { display: flex; align-items: center; gap: 10px; padding-top: 16px; }
-    .dsh-workos-brand__running { border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 16px; padding-top: 16px; }
-    .dsh-workos-brand__running h4 { margin: 0 0 12px; }
+    .dsh-workos-brand__running, .dsh-workos-brand__hero { border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 16px; padding-top: 16px; }
+    .dsh-workos-brand__running h4, .dsh-workos-brand__hero h4 { margin: 0 0 12px; }
+    .dsh-workos-brand__toggle { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; cursor: pointer; }
+    .dsh-workos-brand__toggle input { margin: 0; accent-color: var(--dsw-alias-state-business-primary); }
+    .dsh-workos-brand__hero-preview { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 20px 12px; margin-top: 14px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 6px; }
+    .dsh-workos-brand__hero-preview img { width: 34px; height: 34px; object-fit: contain; flex: none; }
+    .dsh-workos-brand__hero-preview > span { overflow-wrap: anywhere; min-width: 0; }
+    .dsh-workos-brand__hero-badge { border-radius: 999px; padding: 2px 7px; background: var(--dsw-alias-state-business-tertiary); color: var(--dsw-alias-label-primary-bluish); font-size: 12px; }
+    [data-dsh-workos-hero-preview="hidden"] [class$="_titleGroup"] > [class$="_previewBadge"] { display: none !important; }
+    [class$="_headline"]:has(> [class$="_fishHitbox"]) [class$="_titleGroup"] > span { overflow-wrap: anywhere; max-width: 100%; white-space: normal; }
     .dsh-workos-brand__icons { border: 0; padding: 0; margin: 0 0 14px; display: flex; gap: 8px; flex-wrap: wrap; }
     .dsh-workos-brand__icons legend { margin-bottom: 8px; }
     .dsh-workos-brand__icon-option { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; font-size: 12px; cursor: pointer; }
@@ -357,6 +399,7 @@ function installBrandingUnsafe(ctx) {
     window.clearInterval(timer)
     window.removeEventListener(CHANGE_EVENT, onChange)
     runningStatus.dispose()
+    heroLogo.dispose()
     clearSvg(currentTargets?.name)
     clearSvg(currentTargets?.mark)
     document.head.querySelector('[data-dsh-workos-branding="favicon"]')?.remove()

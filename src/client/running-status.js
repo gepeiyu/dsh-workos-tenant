@@ -13,12 +13,16 @@ export function installRunningStatus(locale) {
   const originalTranslate = locale.translate
   const translate = (ns, key, params) => originalTranslate.call(locale, ns, key, params)
   const register = () => locale.register(NS, {
-    zh: { label: current.runningText ?? '' },
-    en: { label: current.runningText ?? '' },
+    zh: { label: current.runningText ?? '', headline: current.heroHeadline ?? '', badge: current.heroBadgeText ?? '' },
+    en: { label: current.runningText ?? '', headline: current.heroHeadline ?? '', badge: current.heroBadgeText ?? '' },
   })
   let unregister = register()
   locale.translate = (ns, key, params) => {
     const label = translate(ns, key, params)
+    if (ns === 'conversation') {
+      if (key === 'hero.headline') return current.heroHeadline ?? label
+      if (key === 'hero.preview') return current.heroBadgeText ?? label
+    }
     if (ns !== 'chat' || !['chat.deepDiving', 'chat.deepDivingFor'].includes(key)) return label
     return customizeRunningLabel(label, translate('chat', 'chat.deepDiving'), current.runningText)
   }
@@ -27,7 +31,8 @@ export function installRunningStatus(locale) {
     update(value) {
       const next = { ...DEFAULT_BRANDING, ...value }
       document.documentElement.dataset.dshWorkosRunningIcon = next.runningIcon
-      if (next.runningText === current.runningText) return
+      document.documentElement.dataset.dshWorkosHeroPreview = next.heroBadgeVisible ? 'visible' : 'hidden'
+      if (next.runningText === current.runningText && next.heroHeadline === current.heroHeadline && next.heroBadgeText === current.heroBadgeText) return
       current = next
       // Dictionary registration publishes a locale revision, refreshing mounted
       // running labels (including the accessible status) immediately after save.
@@ -38,6 +43,7 @@ export function installRunningStatus(locale) {
       locale.translate = originalTranslate
       unregister()
       delete document.documentElement.dataset.dshWorkosRunningIcon
+      delete document.documentElement.dataset.dshWorkosHeroPreview
     },
   }
 }

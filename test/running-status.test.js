@@ -23,6 +23,10 @@ test('running status refreshes mounted labels, keeps other translations, and res
       return () => { dictionaries.delete(ns); revision++ }
     },
     translate(ns, key, params) {
+      if (ns === 'conversation') {
+        if (key === 'hero.headline') return this.language === 'zh' ? '探索未至之境' : 'Into the Unknown'
+        if (key === 'hero.preview') return this.language === 'zh' ? '预览版' : 'Preview'
+      }
       if (ns !== 'chat') return key
       const text = this.language === 'zh' ? '深度求索中' : 'Deep diving'
       if (key === 'chat.deepDiving') return text
@@ -49,4 +53,33 @@ test('running status refreshes mounted labels, keeps other translations, and res
   assert.equal(locale.translate, originalTranslate)
   assert.equal(dictionaries.size, 0)
   assert.deepEqual(globalThis.document.documentElement.dataset, {})
+})
+
+test('welcome text and badge stay literal, refresh when changed, and restore localized defaults', t => {
+  const originalDocument = globalThis.document
+  globalThis.document = { documentElement: { dataset: {} } }
+  t.after(() => { globalThis.document = originalDocument })
+  let revision = 0
+  const locale = {
+    register() { revision++; return () => { revision++ } },
+    translate(ns, key) {
+      if (ns !== 'conversation') return key
+      return { 'hero.headline': '探索未至之境', 'hero.preview': '预览版' }[key] ?? key
+    },
+  }
+  const status = installRunningStatus(locale)
+  status.update({ heroHeadline: '<欢迎> {name} $&', heroBadgeText: '内测 {name}', heroBadgeVisible: false })
+  assert.equal(locale.translate('conversation', 'hero.headline', { name: 'ignored' }), '<欢迎> {name} $&')
+  assert.equal(locale.translate('conversation', 'hero.preview'), '内测 {name}')
+  assert.equal(locale.translate('other', 'hero.headline'), 'hero.headline')
+  assert.equal(globalThis.document.documentElement.dataset.dshWorkosHeroPreview, 'hidden')
+  const savedRevision = revision
+  status.update({ heroHeadline: '欢迎', heroBadgeText: '正式版', heroBadgeVisible: true })
+  assert.ok(revision > savedRevision)
+  assert.equal(locale.translate('conversation', 'hero.headline'), '欢迎')
+  assert.equal(globalThis.document.documentElement.dataset.dshWorkosHeroPreview, 'visible')
+  status.update({})
+  assert.equal(locale.translate('conversation', 'hero.headline'), '探索未至之境')
+  assert.equal(locale.translate('conversation', 'hero.preview'), '预览版')
+  status.dispose()
 })

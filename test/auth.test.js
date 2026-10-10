@@ -405,9 +405,12 @@ test('tenant branding is platform-scoped and only admins can write it', async ()
     wordmark: null,
     runningIcon: 'dots',
     runningText: '正在执行',
+    heroHeadline: '欢迎使用',
+    heroBadgeText: '内测',
+    heroBadgeVisible: false,
   })).status, 200)
   assert.deepEqual(saved, [{
-    branding: { badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null, runningIcon: 'dots', runningText: '正在执行' },
+    branding: { badge: 'ACME', logo: 'data:image/png;base64,AA==', wordmark: null, runningIcon: 'dots', runningText: '正在执行', heroHeadline: '欢迎使用', heroBadgeText: '内测', heroBadgeVisible: false },
   }])
 })
 
