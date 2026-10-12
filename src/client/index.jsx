@@ -6,7 +6,7 @@ import {
   Menu,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { installSessionVisibility } from './visibility.js'
+import { installPluginMenuVisibility, installSessionVisibility } from './visibility.js'
 import { dictionaries } from './locales.js'
 import { BrandingSettings, installBranding } from './branding.jsx'
 
@@ -239,6 +239,10 @@ function isAdmin(account) {
 
 function installSettingsVisibility(ctx) {
   const slots = ctx.slots
+  // Until /auth/me confirms an administrator, keep the Plugins entry hidden.
+  // A 404 means WorkOS is disabled and the host retains local management.
+  const pluginMenu = installPluginMenuVisibility(ctx, () =>
+    isAdmin(accountSnapshot) || accountState === 'local')
   const entries = slots.entries.bind(slots)
   const entriesOfSlot = slots.entriesOfSlot.bind(slots)
   const getVersion = slots.getVersion.bind(slots)
@@ -258,6 +262,7 @@ function installSettingsVisibility(ctx) {
   }
   const syncVisibility = () => {
     visibilityRevision += 1
+    pluginMenu.refresh()
     if (accountSnapshot && !isAdmin(accountSnapshot)) {
       document.documentElement.dataset.dshWorkosMember = ''
     } else {
@@ -281,6 +286,7 @@ function installSettingsVisibility(ctx) {
   void loadAccount()
   return () => {
     accountListeners.delete(syncVisibility)
+    pluginMenu.dispose()
     delete document.documentElement.dataset.dshWorkosMember
     slots.entries = entries
     slots.entriesOfSlot = entriesOfSlot

@@ -1,6 +1,66 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { installSessionVisibility } from '../src/client/visibility.js'
+import { installPluginMenuVisibility, installSessionVisibility } from '../src/client/visibility.js'
+
+test('plugin menu visibility follows account readiness, late panel registration, locale, and disposal', t => {
+  let removed = false
+  const style = { dataset: {}, textContent: '', remove() { removed = true } }
+  for (const [name, value] of Object.entries({
+    document: { createElement: () => style, head: { appendChild() {} } },
+    CSS: { escape: value => value },
+  })) {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, name)
+    Object.defineProperty(globalThis, name, { configurable: true, value })
+    t.after(() => {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+      else delete globalThis[name]
+    })
+  }
+  const panels = new Set()
+  const locales = new Set()
+  let entries = []
+  let label = '插件'
+  let role = 'loading'
+  const menu = installPluginMenuVisibility({
+    slots: {
+      entriesOfSlot: name => {
+        assert.equal(name, 'sidebar.panellist')
+        return entries
+      },
+      subscribe(name, listener) {
+        assert.equal(name, 'sidebar.panellist')
+        panels.add(listener)
+        return () => panels.delete(listener)
+      },
+    },
+    locale: { subscribe(listener) { locales.add(listener); return () => locales.delete(listener) } },
+  }, () => ['owner', 'admin', 'local'].includes(role))
+
+  entries = [
+    { options: { id: 'schedules', label: '自动任务' } },
+    { options: { id: 'plugins', label: () => label } },
+  ]
+  for (const listener of panels) listener()
+  assert.match(style.textContent, /\[data-pane="sidebar"\] nav button\[aria-label="插件"\]/)
+  assert.doesNotMatch(style.textContent, /自动任务/)
+  for (role of ['member', 'signed-out', 'error', 'loading']) {
+    menu.refresh()
+    assert.match(style.textContent, /display: none !important/)
+  }
+  for (role of ['owner', 'admin', 'local']) {
+    menu.refresh()
+    assert.equal(style.textContent, '')
+  }
+  role = 'member'
+  for (label of ['Plugins', 'プラグイン']) {
+    for (const listener of locales) listener()
+    assert.ok(style.textContent.includes(`aria-label="${label}"`))
+  }
+  menu.dispose()
+  assert.equal(removed, true)
+  assert.equal(panels.size, 0)
+  assert.equal(locales.size, 0)
+})
 
 test('login clears the shared selection without replacing session snapshot readers', async () => {
   const calls = []

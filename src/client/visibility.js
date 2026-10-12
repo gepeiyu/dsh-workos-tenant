@@ -13,3 +13,35 @@ export function installSessionVisibility(ctx, request = globalThis.fetch) {
     .catch(error => { console.error('[dsh-workos-tenant] navigation initialization failed', error) })
   return () => { disposed = true }
 }
+
+/** The sidebar caches panel metadata before this plugin activates. Hide the
+ * native button using its registered label, including in the collapsed rail. */
+export function installPluginMenuVisibility(ctx, canManagePlugins) {
+  const style = document.createElement('style')
+  style.dataset.pluginCss = 'dsh-workos-tenant/plugin-menu'
+  document.head.appendChild(style)
+  const refresh = () => {
+    if (canManagePlugins()) {
+      style.textContent = ''
+      return
+    }
+    const selectors = ctx.slots.entriesOfSlot('sidebar.panellist')
+      .filter(entry => entry.options.id === 'plugins')
+      .map(({ options }) => {
+        const label = typeof options.label === 'function' ? options.label() : options.label
+        return `[data-pane="sidebar"] nav button[aria-label="${CSS.escape(label ?? options.id)}"]`
+      })
+    style.textContent = selectors.length ? `${selectors.join(',\n')} { display: none !important; }` : ''
+  }
+  const offPanels = ctx.slots.subscribe('sidebar.panellist', refresh)
+  const offLocale = ctx.locale.subscribe(refresh)
+  refresh()
+  return {
+    refresh,
+    dispose() {
+      offPanels()
+      offLocale()
+      style.remove()
+    },
+  }
+}

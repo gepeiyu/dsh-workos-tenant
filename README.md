@@ -106,6 +106,7 @@ The plugin then applies DSH-internal ownership and authorization rules. It must 
 - WorkOS tenant settings under DSH Settings > WorkOS tenant for network access, workspace paths, connection, and storage.
 - An independent DSH Settings > Branding page for the whale logo, DeepSeek wordmark, and HARNESS badge text. Branding is a platform-wide singleton in the selected tenant storage; only administrators can write it, while all signed-in users share it.
 - Members can manage only their own Models page; tenant settings remain administrator-only.
+- The sidebar Plugins menu is visible only to owners and administrators when WorkOS is enabled.
 - Per-user model provider and credential namespaces, with shared unprefixed providers available to the organization.
 - Server-side authorization-code exchange and HttpOnly, signed session cookies.
 - Automatic redirect of unauthenticated index requests to `/auth/login`.
