@@ -29,7 +29,8 @@ export function installPluginMenuVisibility(ctx, canManagePlugins) {
       .filter(entry => entry.options.id === 'plugins')
       .map(({ options }) => {
         const label = typeof options.label === 'function' ? options.label() : options.label
-        return `[data-pane="sidebar"] nav button[aria-label="${CSS.escape(label ?? options.id)}"]`
+        // DSH 0.2's AppFrame uses a CSS-module sidebarCol, without data-pane.
+        return `:is([data-pane="sidebar"], [class*="_sidebarCol"]) nav button[aria-label="${CSS.escape(label ?? options.id)}"]`
       })
     style.textContent = selectors.length ? `${selectors.join(',\n')} { display: none !important; }` : ''
   }

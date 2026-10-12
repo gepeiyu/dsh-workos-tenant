@@ -41,7 +41,7 @@ test('plugin menu visibility follows account readiness, late panel registration,
     { options: { id: 'plugins', label: () => label } },
   ]
   for (const listener of panels) listener()
-  assert.match(style.textContent, /\[data-pane="sidebar"\] nav button\[aria-label="插件"\]/)
+  assert.match(style.textContent, /:is\(\[data-pane="sidebar"\], \[class\*="_sidebarCol"\]\) nav button\[aria-label="插件"\]/)
   assert.doesNotMatch(style.textContent, /自动任务/)
   for (role of ['member', 'signed-out', 'error', 'loading']) {
     menu.refresh()
